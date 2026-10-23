@@ -5,3 +5,4 @@ node_modules/
 .vercel/
 coverage/
 playwright-report/
+*.tsbuildinfo
