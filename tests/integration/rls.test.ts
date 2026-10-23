@@ -47,7 +47,8 @@ describe("master data (sku): planner and admin write; procurement read-only (C-0
     const { inject } = await import("vitest");
     const cfg = inject("supabase");
     const c = createClient(cfg.url, cfg.anonKey, { auth: { persistSession: false } });
-    await c.auth.signInWithPassword({ email: "stranger@freshroots.test", password: "local-dev-only-stranger-1" });
+    const signIn = await c.auth.signInWithPassword({ email: "stranger@freshroots.test", password: "local-dev-only-stranger-1" });
+    expect(signIn.error).toBeNull();
     const { data } = await c.from("sku").select("id");
     expect(data).toEqual([]);
   });
@@ -93,6 +94,21 @@ describe("rules: planner publishes a new version with a reason (D12)", () => {
   it.each(["procurement", "it.admin", "priya", "ceo"] as Who[])("%s cannot publish rules", async (who) => {
     const { error } = await (await as(who)).client.rpc("publish_rule_version", { p_params: DEFAULT_RULES, p_reason: "x" });
     expect(error?.message).toMatch(/Only the planner/);
+  });
+
+  it("rule parameters must keep their shape (review finding 9)", async () => {
+    const broken = { ...DEFAULT_RULES } as Record<string, unknown>;
+    delete broken.restatementWindowWks;
+    const { error } = await (await as("raghav")).client.rpc("publish_rule_version", { p_params: broken, p_reason: "test" });
+    expect(error?.message).toMatch(/same fields/);
+  });
+
+  it("anonymous callers can't read the rules", async () => {
+    const { createClient } = await import("@supabase/supabase-js");
+    const { inject } = await import("vitest");
+    const cfg = inject("supabase");
+    const anon = createClient(cfg.url, cfg.anonKey, { auth: { persistSession: false } });
+    expect((await anon.rpc("current_rules")).error).not.toBeNull();
   });
 
   it("nobody writes rule_version directly", async () => {
@@ -163,6 +179,26 @@ describe("people: self or admin", () => {
   it("a user sees only their own app_user row; admin sees all", async () => {
     expect((await (await as("raghav")).client.from("app_user").select("email")).data).toEqual([{ email: "raghav@freshroots.test" }]);
     expect(((await (await as("it.admin")).client.from("app_user").select("email")).data ?? []).length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("an admin can't make themselves owner through the API (review finding 1)", async () => {
+    const { client, id } = await as("it.admin");
+    const { data } = await client.from("app_user").update({ is_owner: true }).eq("user_id", id).select();
+    expect(data ?? []).toEqual([]);
+    const { data: row } = await service().from("app_user").select("is_owner").eq("user_id", id).single();
+    expect(row!.is_owner).toBe(false);
+    expect((await client.rpc("set_mode", { p_mode: "live", p_reason: "x" })).error?.message).toMatch(/Only the owner/);
+  });
+
+  it("an admin can't change their own roles, but can change someone else's", async () => {
+    const { client, id } = await as("it.admin");
+    const self = await client.rpc("admin_set_user", { p_user_id: id, p_name: "IT admin", p_roles: ["admin", "uploader", "planner"], p_backup_for: null, p_backup_from: null, p_backup_to: null });
+    expect(self.error?.message).toMatch(/own roles/);
+    const priyaId = (await as("priya")).id;
+    const other = await client.rpc("admin_set_user", { p_user_id: priyaId, p_name: "Priya Sharma", p_roles: ["uploader"], p_backup_for: "uploader", p_backup_from: "2026-11-02", p_backup_to: "2026-11-06" });
+    expect(other.error).toBeNull();
+    const notAdmin = await (await as("raghav")).client.rpc("admin_set_user", { p_user_id: priyaId, p_name: "x", p_roles: ["admin"], p_backup_for: null, p_backup_from: null, p_backup_to: null });
+    expect(notAdmin.error?.message).toMatch(/Only an admin/);
   });
 
   it("a user can't grant themselves roles", async () => {

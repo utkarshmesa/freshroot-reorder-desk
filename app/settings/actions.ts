@@ -178,7 +178,7 @@ export async function setMode(form: FormData) {
 const ROLES = ["uploader", "planner", "procurement", "admin", "viewer"];
 
 export async function savePerson(form: FormData) {
-  const me = await requireAction("settings.editPeople");
+  await requireAction("settings.editPeople");
   const path = "/settings/people";
   const userId = str(form, "user_id");
   const roles = ROLES.filter((r) => form.get(`role_${r}`) === "on");
@@ -189,8 +189,15 @@ export async function savePerson(form: FormData) {
     backup_from: str(form, "backup_from") || null,
     backup_to: str(form, "backup_to") || null,
   };
-  if (userId === me.userId && !roles.includes("admin")) fail(path, "You can't remove your own admin role");
-  const { error } = await (await userClient()).from("app_user").update(patch).eq("user_id", userId);
+  // The RPC refuses changes to your own roles and never touches the owner flag.
+  const { error } = await (await userClient()).rpc("admin_set_user", {
+    p_user_id: userId,
+    p_name: patch.name,
+    p_roles: patch.roles,
+    p_backup_for: patch.backup_for,
+    p_backup_from: patch.backup_from,
+    p_backup_to: patch.backup_to,
+  });
   if (error) fail(path, error.message);
   revalidatePath(path);
   redirect(`${path}?saved=${encodeURIComponent(patch.name)}`);
@@ -206,7 +213,7 @@ export async function invitePerson(form: FormData) {
   if (!email || !name || roles.length === 0) fail(path, "Email, name and at least one role are required");
   const { data, error } = await serviceClient().auth.admin.inviteUserByEmail(email);
   if (error || !data.user) fail(path, error?.message ?? "Invite failed");
-  const { error: e2 } = await (await userClient()).from("app_user").insert({ user_id: data.user.id, email, name, roles });
+  const { error: e2 } = await (await userClient()).rpc("admin_add_user", { p_user_id: data.user.id, p_email: email, p_name: name, p_roles: roles });
   if (e2) fail(path, e2.message);
   revalidatePath(path);
   redirect(`${path}?saved=${encodeURIComponent(name)}`);

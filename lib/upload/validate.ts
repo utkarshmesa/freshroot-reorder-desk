@@ -133,7 +133,9 @@ function mapSkuMaster(c: Ctx, rows: Array<Record<string, string>>, caseMode: boo
     if (!["active", "inactive"].includes(status)) issue(c, "error", "bad_status", `status "${r.status}" must be active or inactive`, n);
     const firstSale = (r.first_sale_week ?? "").trim();
     if (firstSale && !isValidWeek(firstSale)) issue(c, "error", "invalid_week", `first_sale_week "${firstSale}" is not a valid ISO week`, n);
-    if (!id || !name || std === null || perishable === null) return;
+    const supplier = ((caseMode ? r.distributor_id : r.supplier_id) ?? "").trim();
+    if (!supplier) issue(c, "error", "missing_value", `${caseMode ? "Distributor_ID" : "supplier_id"} is empty`, n);
+    if (!id || !name || std === null || perishable === null || !supplier) return;
     stage(c, "sku", {
       id,
       name,
@@ -149,7 +151,7 @@ function mapSkuMaster(c: Ctx, rows: Array<Record<string, string>>, caseMode: boo
       shelf_life_wks: caseMode ? null : opt("shelf_life_wks"),
       perishable,
       unit_cost_inr: caseMode ? null : opt("unit_cost_inr"),
-      supplier_id: ((caseMode ? r.distributor_id : r.supplier_id) ?? "").trim(),
+      supplier_id: supplier,
       zoho_item_id: caseMode ? null : (r.zoho_item_id ?? "").trim() || null,
     });
   });
@@ -209,6 +211,8 @@ function mapCalendar(c: Ctx, rows: Array<Record<string, string>>, rules: UploadC
 }
 
 // ---------- cross-file checks ----------
+
+const stockStaged = (staging: StagingRow[]) => staging.some((s) => s.kind === "stock");
 
 function sum<T>(xs: T[], f: (x: T) => number) {
   return xs.reduce((a, x) => a + f(x), 0);
@@ -322,16 +326,25 @@ export function prepareUpload(files: InputFile[], ctx: UploadContext): PreparedU
     if (locked.length) g.issues.push({ level: "error", code: "restatement_locked", message: `Weeks older than ${ctx.rules.restatementWindowWks} weeks can't be corrected: ${locked.join(", ")}`, link: LINK.rejected });
     restatedWeeks.push(...oldWeeks.filter((w) => compareWeeks(w, oldest) >= 0));
     if (restatedWeeks.length) g.issues.push({ level: "warning", code: "restatement", message: `Corrects already-loaded week${restatedWeeks.length > 1 ? "s" : ""} ${restatedWeeks.join(", ")}. The change is logged.` });
+    const run = ctx.currentRunWeek;
+    if (run && !stockStaged(staging) && restatedWeeks.some((w) => compareWeeks(w, run) < 0)) {
+      g.issues.push({ level: "warning", code: "rerun", message: `These weeks feed the current ${run} run, so it will be redone with the corrected sales.` });
+    }
   }
 
-  // Volume change vs last week (±40% needs a confirm).
-  if (newWeeks.length && ctx.previousWeekNetUnits && ctx.previousWeekNetUnits > 0) {
-    const first = newWeeks[0]!;
-    const net = sum(sales.filter((r) => r.iso_week === first), (r) => Number(r.shipped_units) - Number(r.returns_units));
-    const pct = ((net - ctx.previousWeekNetUnits) / ctx.previousWeekNetUnits) * 100;
-    if (Math.abs(pct) > ctx.rules.volumeChangeConfirmPct) {
-      g.issues.push({ level: "confirm", code: "volume_change", message: `Total net units in ${first} changed ${pct > 0 ? "+" : ""}${pct.toFixed(0)}% vs ${latest} (${net} vs ${ctx.previousWeekNetUnits}). Confirm this is real before committing.` });
-    }
+  // Volume change: each new week vs the week before it (±40% needs a confirm).
+  const netOf = (w: string) => sum(sales.filter((r) => r.iso_week === w), (r) => Number(r.shipped_units) - Number(r.returns_units));
+  const bumps: string[] = [];
+  newWeeks.forEach((w, i) => {
+    const prevWeek = i === 0 ? latest : newWeeks[i - 1]!;
+    const prev = i === 0 ? ctx.previousWeekNetUnits : netOf(newWeeks[i - 1]!);
+    if (!prevWeek || !prev || prev <= 0) return;
+    const net = netOf(w);
+    const pct = ((net - prev) / prev) * 100;
+    if (Math.abs(pct) > ctx.rules.volumeChangeConfirmPct) bumps.push(`${w} ${pct > 0 ? "+" : ""}${pct.toFixed(0)}% vs ${prevWeek} (${net} vs ${prev})`);
+  });
+  if (bumps.length) {
+    g.issues.push({ level: "confirm", code: "volume_change", message: `Total net units changed by more than ${ctx.rules.volumeChangeConfirmPct}%: ${bumps.join("; ")}. Confirm this is real before committing.` });
   }
 
   // Stock as-of: older rejected, equal = correction of the current week (C-023d).

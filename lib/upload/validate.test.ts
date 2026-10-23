@@ -142,6 +142,22 @@ describe("UP-10 to UP-12", () => {
     expect(small.report.confirms).toBe(0);
   });
 
+  it("UP-10 every new week is compared with the week before it, not just the first", () => {
+    const two = csv("two.csv", "iso_week,sku_id,distributor_id,shipped_units,returns_units\n2026-W44,SKU001,D001,100,0\n2026-W45,SKU001,D001,1000,0\n");
+    const r = prepareUpload([two], context({ previousWeekNetUnits: 100 })).report;
+    expect(r.issues.find((i) => i.code === "volume_change")?.message).toMatch(/2026-W45 \+900% vs 2026-W44/);
+  });
+
+  it("a SKU master row with a blank supplier is an error, not a commit-time failure", () => {
+    const r = prepareUpload([csv("sku.csv", "id,name,std_qty,perishable,supplier_id\nSKU777,No supplier,10,false,\n")], context()).report;
+    expect(r.issues.find((i) => i.code === "missing_value")?.message).toContain("supplier_id");
+  });
+
+  it("a sales correction that feeds the current run says the run will be redone", () => {
+    const r = prepareUpload([fixture(F + "restate_w40.csv")], context({ currentRunWeek: "2026-W44" })).report;
+    expect(r.issues.find((i) => i.code === "rerun")?.message).toContain("2026-W44");
+  });
+
   it("UP-11 negatives rejected", () => {
     const r = prepareUpload([csv("n.csv", "iso_week,sku_id,distributor_id,shipped_units,returns_units\n2026-W44,SKU001,D001,-5,0\n")], context()).report;
     expect(codes(r.issues, "error")).toContain("negative_value");

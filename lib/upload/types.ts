@@ -45,6 +45,7 @@ export type UploadContext = {
   knownSupplierIds: ReadonlySet<string>;
   committedHashes: ReadonlySet<string>;
   latestCommittedWeek: string | null;
+  currentRunWeek?: string | null; // week of the latest (non-superseded) run
   lastAsOf: string | null; // ISO timestamp of the last committed stock snapshot
   previousWeekNetUnits: number | null; // total net units of latestCommittedWeek
   rules: { restatementWindowWks: number; volumeChangeConfirmPct: number; festivalUpliftPct: number; festivalPreloadWks: number };

@@ -15,6 +15,7 @@ export function toInputFile(name: string, bytes: Uint8Array): InputFile {
 
 type Ctx = {
   latest_committed_week: string | null;
+  current_run_week: string | null;
   last_as_of: string | null;
   previous_week_net_units: number | null;
   committed_hashes: string[];
@@ -37,6 +38,7 @@ export async function loadContext(user: SupabaseClient, hashes: string[], caseDa
     knownSupplierIds: new Set(c.supplier_ids),
     committedHashes: new Set(c.committed_hashes),
     latestCommittedWeek: c.latest_committed_week,
+    currentRunWeek: c.current_run_week,
     lastAsOf: c.last_as_of,
     previousWeekNetUnits: c.previous_week_net_units === null ? null : Number(c.previous_week_net_units),
     rules: {
@@ -92,17 +94,17 @@ export async function stageUpload(args: {
 }
 
 /** The uploader confirms every yellow item (e.g. ±40% volume) before commit. */
-export async function confirmUpload(args: { user: SupabaseClient; service: SupabaseClient; uploadId: string; confirmedCodes: string[] }): Promise<Report> {
-  const { user, service, uploadId, confirmedCodes } = args;
-  // Read through the user's client: RLS proves this is the caller's own upload.
-  const { data: up, error } = await user.from("upload").select("id, status, validation_report").eq("id", uploadId).single();
+export async function confirmUpload(args: { user: SupabaseClient; service: SupabaseClient; userId: string; uploadId: string; confirmedCodes: string[] }): Promise<Report> {
+  const { user, service, userId, uploadId, confirmedCodes } = args;
+  // Only the uploader who staged it may confirm (admins can read every upload, so check the owner explicitly).
+  const { data: up, error } = await user.from("upload").select("id, status, validation_report").eq("id", uploadId).eq("by", userId).single();
   if (error || !up) throw new Error("Upload not found");
   if (up.status !== "staged") throw new Error(`Upload is ${up.status}`);
   const report = up.validation_report as Report;
   const needed = report.issues.filter((i) => i.level === "confirm").map((i) => i.code);
   const missing = needed.filter((c) => !confirmedCodes.includes(c));
   const next: Report = { ...report, unconfirmed: missing.length };
-  const { error: e } = await service.from("upload").update({ validation_report: next }).eq("id", uploadId).eq("status", "staged");
+  const { error: e } = await service.from("upload").update({ validation_report: next }).eq("id", uploadId).eq("by", userId).eq("status", "staged");
   if (e) throw new Error(e.message);
   return next;
 }

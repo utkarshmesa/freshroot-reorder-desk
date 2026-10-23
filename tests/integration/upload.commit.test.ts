@@ -160,6 +160,27 @@ describe("UP-02 + C-023d: same as-of is a correction that supersedes the run", (
     expect(old).toEqual({ status: "superseded", superseded_by: res.run_id });
   });
 
+  it("a same-week re-run keeps the week's mode even if Deepa switched since (C-023c)", async () => {
+    const deepa = (await as("deepa")).client;
+    await deepa.rpc("set_mode", { p_mode: "live", p_reason: "test: switch mid-week" });
+    const { data: before } = await service().from("run").select("id, mode").eq("iso_week", "2026-W43").is("superseded_by", null).single();
+    const { uploadId } = await stage([text("stock_fix2.csv", `as_of_ts,sku_id,on_hand_units\n${[...SKUS, "00123"].map((s) => `2026-10-18,${s},510`).join("\n")}\n`)]);
+    const res = await commit(uploadId);
+    const { data: after } = await service().from("run").select("mode").eq("id", res.run_id!).single();
+    expect(after!.mode).toBe(before!.mode);
+    expect(after!.mode).toBe("shadow");
+    await deepa.rpc("set_mode", { p_mode: "shadow", p_reason: "test: back to shadow" });
+  });
+
+  it("a sales correction for a week the current run uses redoes that run", async () => {
+    const { data: before } = await service().from("run").select("id").eq("iso_week", "2026-W43").is("superseded_by", null).single();
+    const { uploadId, report } = await stage([text("restate_w42.csv", "iso_week,sku_id,distributor_id,shipped_units,returns_units\n2026-W42,SKU001,ALL,260,1\n")]);
+    expect(report.issues.map((i) => i.code)).toContain("rerun");
+    const res = await commit(uploadId);
+    expect(res.run_week).toBe("2026-W43");
+    expect(res.superseded_run).toBe(before!.id);
+  });
+
   it("an older as-of is refused by the database even if staged", async () => {
     const svc = service();
     const { data: up } = await svc.from("upload").insert({ hashes: ["forged-old"], status: "staged", as_of_ts: "2026-10-11T23:59:00+05:30", validation_report: { errors: 0, unconfirmed: 0 }, by: (await as("priya")).id }).select("id").single();
@@ -176,16 +197,28 @@ describe("UP-09 + UP-10: weekly uploads W43 → W52 → W53 → 2027-W01", () =>
       const stock = `as_of_ts,sku_id,on_hand_units\n${[...SKUS, "00123"].map((s) => `${sundayOf(week)},${s},400`).join("\n")}\n`;
       const { uploadId, report } = await stage([text(`sales_${week}.csv`, sales), text(`stock_${week}.csv`, stock)]);
       expect(report.errors, `${week}: ${JSON.stringify(report.issues.filter((x) => x.level === "error"))}`).toBe(0);
-      if (report.unconfirmed > 0) {
-        await expect(commit(uploadId)).rejects.toThrow(/Confirm/);
-        const { client } = await as("priya");
-        await confirmUpload({ user: client, service: service(), uploadId, confirmedCodes: report.issues.filter((x) => x.level === "confirm").map((x) => x.code) });
-      }
+      expect(report.unconfirmed).toBe(0);
       const res = await commit(uploadId);
       expect(res.run_week).toBe(addWeeks(week, 1));
       week = addWeeks(week, 1);
     }
     expect(week).toBe("2027-W01");
+
+    // UP-10: a deliberate +300% jump needs a confirm; the database refuses the commit until it is given.
+    // Sales are loaded to 2026-W53 at 100 units per SKU; 2027-W01 has 400.
+    const next = `iso_week,sku_id,distributor_id,shipped_units,returns_units\n${SKUS.map((s) => `2027-W01,${s},ALL,400,0`).join("\n")}\n`;
+    const staged = await stage([text("sales_2027-W01.csv", next)]);
+    expect(staged.report.errors, JSON.stringify(staged.report.issues)).toBe(0);
+    expect(staged.report.issues.find((x) => x.code === "volume_change")?.message).toContain("+300%");
+    expect(staged.report.unconfirmed).toBe(1);
+    await expect(commit(staged.uploadId)).rejects.toThrow(/Confirm/);
+    // Another uploader-admin can't confirm Priya's upload.
+    const admin = await as("it.admin");
+    await expect(confirmUpload({ user: admin.client, service: service(), userId: admin.id, uploadId: staged.uploadId, confirmedCodes: ["volume_change"] })).rejects.toThrow(/not found/i);
+    const { client, id } = await as("priya");
+    await confirmUpload({ user: client, service: service(), userId: id, uploadId: staged.uploadId, confirmedCodes: ["volume_change"] });
+    const done = await commit(staged.uploadId);
+    expect(done.run_week).toBeNull();
     const { data } = await service().from("run").select("iso_week").is("superseded_by", null).order("created_at");
     expect(data!.map((r) => r.iso_week).slice(-3)).toEqual(["2026-W52", "2026-W53", "2027-W01"]);
   });

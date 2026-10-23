@@ -147,7 +147,10 @@ RLS is **on for every table**. Helper `has_role(r text)` reads `app_user.roles` 
   - `has_role()` / `is_owner()` are `security definer`, `stable`, with `set search_path = public`, so they don't recurse through `app_user`'s own RLS.
   - Every view is `with (security_invoker = true)`.
   - Every `security definer` RPC checks the caller's role itself as its first statement.
-  - Owner-only changes (mode, holdout) and switching `rule_version.is_current` go through RPCs.
+  - Owner-only changes (mode, holdout) and switching `rule_version.is_current` go through RPCs. `publish_rule_version` refuses parameters whose fields or types differ from the current version.
+  - **People:** there are no direct writes to `app_user`. Admins use `admin_set_user` / `admin_add_user`, which refuse changes to the caller's own roles and never touch `is_owner`. `is_owner` is set only by the service role, per the RUNBOOK. This keeps an admin from making themselves owner or planner (D19).
+  - No `security definer` function is executable by `anon` or `PUBLIC`.
+  - `app_setting` Zoho domains are limited to Zoho's own hosts by a CHECK constraint.
   - Service-role writes (worker, cron) pass the actor explicitly to `change_log`; `auth.uid()` is null there.
 - **Routes that call Zoho** (send, re-approve) run server-side with the writer, which RLS doesn't protect, so they **check the planner role in code** before doing anything.
 

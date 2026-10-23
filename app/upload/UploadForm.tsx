@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ReportView } from "@/components/ReportView";
 import { browserClient } from "@/lib/db/browser";
+import { safeFileName } from "@/lib/upload/paths";
 import type { Report } from "@/lib/upload/types";
 import { confirmAndCommit, validateUpload } from "./actions";
 
@@ -29,7 +30,7 @@ export function UploadForm({ userId }: { userId: string }) {
     const storage = browserClient().storage.from("uploads");
     const paths: string[] = [];
     for (const f of files) {
-      const p = `${userId}/${batch}/${f.name}`;
+      const p = `${userId}/${batch}/${safeFileName(f.name)}`;
       const { error: err } = await storage.upload(p, f, { upsert: false });
       if (err) {
         setState({ step: "pick" });
