@@ -154,7 +154,7 @@ RLS is **on for every table**. Helper `has_role(r text)` reads `app_user.roles` 
 ### 3.3 Key database functions
 supabase-js calls are not transactional, so **every multi-step write is one RPC**.
 - `commit_upload(upload_id)`: `security definer`, `set statement_timeout = '120s'` (the `authenticated` default of ~8 s is too short for ~120k rows); staging rows are inserted beforehand in chunks of 5,000. One transaction. Rechecks hash uniqueness and as-of order, moves staging → facts, writes restatement `change_log` rows, rejects restatements older than 12 weeks, sets `status='committed'`, inserts a `run` row with `status='queued'`. Any error → rollback, nothing committed (partial set not committed).
-- `engine_inputs(sku_ids text[], from_week text)`: returns one compact `jsonb` document per SKU (its distributor-week rows, stock snapshots, events). This avoids PostgREST's 1,000-row page limit and loads SKUs in batches of ~25. It only selects and computes `net = shipped − returns`; **all cleaning stays in the pure engine**. A parity test checks it against the CSV loader on case data.
+- `engine_inputs(sku_ids text[], from_week text)`: returns one compact `jsonb` document per SKU (its distributor-week rows as arrays, stock snapshots, events), covering a **26-week look-back**. The "last k clean weeks" are searched inside that window; fewer than 8 found → queue. This avoids PostgREST's 1,000-row page limit. Batches are sized by **row count** (target ≤ 50k rows per call), not a fixed SKU count. It only selects and computes `net = shipped − returns`; **all cleaning stays in the pure engine**. A parity test checks it against the CSV loader on case data.
 - `claim_run_step(run_id)`: `update run set locked_until = now() + interval '4 min' where id = $1 and (locked_until is null or locked_until < now()) returning *`. A row lease, so cron and the commit trigger never run the same step twice. Session advisory locks don't survive Supabase's transaction pooler.
 - `set_mode(mode)`, `set_holdout(...)`, `publish_rule_version(params, reason)`: owner or planner checks inside; each writes `change_log`.
 - `current_rules()`: returns the current `rule_version.params` (used by engine loader and the Instructions page ⚙ bindings, so both read the **same** source).
@@ -223,13 +223,16 @@ There is **one draft per supplier per week** (reference `FR-{isoWeek}-{supplierI
 | `deadline_auto` | Tue 12:00 rule, non-perishable `C < min_eff`, 1× std | Yes |
 | `rolled` | Tue 12:00 rule, everything else unreviewed | No, re-evaluated next Monday |
 | `sent` | In a created draft (or a `shadow` row) | — |
-| `blocked_pending` | Supplier still has an un-issued draft from an earlier week | No, re-evaluated next Monday; alert |
+| `blocked_pending` | The supplier had an un-issued draft from an earlier week **when this week's run read Zoho** (run step 3), or still has one at send | No, re-evaluated next Monday; alert. **Stays blocked even if the old draft is issued later this week**: this week's quantities were computed without it (drafts never count), so sending them would double-order (C-023) |
 
 **Send to procurement** (planner button, and automatically at Tue 12:00):
-1. **Role check in code** (planner), then **mode check**: `effectiveMode = (env APP_MODE === 'live' && app_mode.mode === 'live') ? 'live' : 'shadow'`. If APP_MODE is unset or anything else, the result is `shadow` (fail closed).
+1. **Role check in code** (planner), then **mode check**:
+   `effectiveMode = (env APP_MODE === 'live' && app_mode.mode === 'live' && run.mode === 'live') ? 'live' : 'shadow'`.
+   - If `APP_MODE` is unset or anything else, the result is `shadow` (fail closed).
+   - `run.mode` is stamped when the run starts, so switching to live mid-week takes effect from **next Monday's run**. Half a week can never go live (C-023).
 2. Choose suppliers with **no `queued` lines left** and no draft yet this week. Suppliers that still have queued lines wait, and the desk shows "N cards left for {supplier}".
 3. Per supplier, in **live** mode:
-   1. **Live re-check in Zoho:** read the supplier's earlier FR- draft by `zoho_po_id` (and list draft POs for that vendor). If one is still a draft → all lines `blocked_pending`; status `skipped_pending`; message "issue or delete the pending draft FR-… first" on the desk and in the send result; email procurement and Raghav. Counted in the order-speed metric.
+   1. **Pending-draft block:** if run step 3 found an un-issued earlier draft for this supplier, its lines were already set to `blocked_pending` at run time. That block holds for the whole week, whatever happens to the old draft. Otherwise, re-check Zoho live: read the supplier's earlier FR- draft by `zoho_po_id` and list draft POs for that vendor. If one is a draft → all lines `blocked_pending`; status `skipped_pending`; message "issue or delete the pending draft FR-… first" on the desk and in the send result; email procurement and Raghav. Counted in the order-speed metric.
    2. Insert `draft_po(status='creating')`, then search Zoho for the reference **and** list draft POs for that vendor. Retry the search after 5 s, because search may lag behind a create.
       - Found → adopt its id (covers "response lost" and "crashed after POST").
       - Not found → `POST /purchaseorders` as a draft (covers "crashed between insert and POST").
@@ -237,13 +240,23 @@ There is **one draft per supplier per week** (reference `FR-{isoWeek}-{supplierI
    4. Mark `created`, lines `sent`.
 4. In **shadow** mode: no writer is constructed. `draft_po` rows are written with `mode='shadow'`, `status='shadow'`, lines `sent`.
 
-**Tue 12:00 IST cron:** first apply D8 to every `queued` line (→ `deadline_auto` or `rolled`), then run Send for **all** remaining suppliers. This includes lines Raghav approved but didn't send (C-015), so "approved, went home" still reaches procurement. Alert Deepa with the counts. All of this respects `effectiveMode`.
+**Decisions are conditional updates.** Approve, change and reject succeed only while the line is still `queued` (`update … where state = 'queued'`). A click that lands after the cron has acted gets "the Tuesday deadline already applied to this card". This also covers Raghav and Deepa clicking the same card at once.
+
+**Tue 12:00 IST cron:** first apply D8 to every `queued` line (→ `deadline_auto` or `rolled`). An **unreviewed spot-check** keeps its auto-approved qty, because it was auto-eligible and is only queued as a sample; it is marked `deadline_auto` (C-023). Then run Send for **all** remaining suppliers. This includes lines Raghav approved but didn't send (C-015), so "approved, went home" still reaches procurement. Alert Deepa with the counts. All of this respects `effectiveMode`.
 
 **Other crons:**
 - **Daily:** drafts `created` more than 3 days ago → email procurement and Raghav; the card needs **Re-approve** (C-009, no Zoho write).
 - **Mon 10:00:** no committed upload → alert the backup uploader, Raghav and Deepa.
 - Every cron is idempotent: it checks an `alert` row or state before acting, so a double-fire is harmless.
 - Vercel cron runs in UTC; IST has no DST, so 08:30 / 10:00 / Tue 12:00 IST = 03:00 / 04:30 / Tue 06:30 UTC.
+
+**Late run:** if a run only becomes ready after Tue 12:00, the deadline rule for that week is **[PENDING C-024]**. Until decided, nothing is auto-approved and Deepa is alerted.
+
+**Infeasible perishable cards** show both options from engine numbers. The stress test shows this card will be common while MOQ = std is assumed:
+- "Order MOQ {moq}: cover after {x} weeks, above the {max}-week maximum";
+- "Skip: about {d} days to stockout".
+
+Raghav picks one; the change-qty path accepts MOQ.
 
 ### 4.2 Re-runs after a correction (C-015)
 A corrected upload for the current week supersedes the run (`run.superseded_by`):
@@ -316,6 +329,12 @@ All filter parameter names (status values, reference search, receipt date range)
 - File type from headers; case-data header sets map per C-011.
 - Validation (§7) produces a report of `error` (red, blocks), `confirm` (yellow, needs a click, e.g. ±40% volume), `warning` (info, e.g. out-of-footprint distributor). Each message links to the matching Instructions section.
 - "No missing weeks": uploaded weeks must be contiguous and continue from the last committed week (restatements within 12 weeks excepted).
+- **Stock as-of:**
+  - **older** than the last run's as-of → rejected;
+  - **equal** → treated as a correction of the current week (re-run per §4.2), and the report says so;
+  - **newer** → a new week (C-023).
+- **Backfill** (3 years, ~19M rows) does **not** go through the web upload. `scripts/replay` loads it with the same parser and validator, then `COPY`s it into a separate `backfill_sales` table. The weekly tables stay clean, and the web app's function limits don't apply.
+- **Case-data mode** runs only in a **non-production Supabase project** (dev/demo), so case SKUs never mix with real data.
 
 ---
 

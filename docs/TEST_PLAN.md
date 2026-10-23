@@ -51,7 +51,7 @@ IDs are stable and become the test names (`it('UP-01 duplicate file rejected', �
 | ID | Acceptance test | Type | Test file | Fixture | Assertion |
 |---|---|---|---|---|---|
 | UP-01 | Duplicate file rejected | Integration | `tests/integration/upload.commit.test.ts` | `sales_w44.csv`, then `sales_w44_dup.csv` | 2nd validation has error `duplicate_hash`; `commit_upload` also refuses (DB-level unique) |
-| UP-02 | Old as-of time rejected | Unit + Integration | `lib/upload/validate.test.ts` | `stock_old_asof.csv` (as-of ≤ last run's) | error `stale_as_of`; also non-Sunday-23:59 IST → error `as_of_not_sunday_close` (real mode) |
+| UP-02 | Old as-of time rejected | Unit + Integration | `lib/upload/validate.test.ts` | `stock_old_asof.csv` (as-of < last run's); `stock_same_asof.csv` (= last run's) | older → error `stale_as_of`; equal → accepted as a current-week correction and flagged in the report (C-023); non-Sunday-23:59 IST → error `as_of_not_sunday_close` (real mode), and the message says exactly which SAP layout and date to re-export |
 | UP-03 | Missing week rejected | Unit | `lib/upload/validate.test.ts` | `sales_gap_w46.csv` (W44, W46) | error `missing_week` naming 2026-W45 |
 | UP-04 | Leading-zero SKU IDs preserved | Unit (CSV + XLSX) | `lib/upload/parse.test.ts` | `sku_leading_zero.csv/.xlsx` | id is the string `"00123"` end-to-end; DB row equals `"00123"` (integration) |
 | UP-05 | "1,200" parsed as a number | Unit | `lib/upload/parse.test.ts` | `sales_thousands.csv` | `1200`; `"12a"`, `"1.5"` (units) → `not_a_number` / `not_an_integer` |
@@ -77,7 +77,12 @@ Extra upload tests (from §7 and clarifications): `UP-10` ±40% volume needs con
 Extra engine tests:
 - `RU-08` fewer than 8 clean weeks → queue.
 - `RU-09` D7: min_eff = max(rule min, lead + 2).
-- `RU-10` quantity order per C-005: MOQ/pack rounding, then floor cap; `pack_mismatch`.
+- `RU-10` quantity order per C-005 as corrected by C-023:
+  - `q = max(q, MOQ)` (MOQ is a **minimum, not a multiple**: Mango Drink stays 750 with MOQ 500);
+  - then round up to a multiple of `pack_size` only if it's set;
+  - then the floor cap;
+  - `pack_mismatch` if capped and not a pack multiple;
+  - cap < MOQ → `infeasible`, and the card carries both the "order MOQ" and "skip" numbers.
 - `RU-11` borderline: ±5% of min_eff and of max (C-006).
 - `RU-12` zero-stock exclusion only when history exists (C-007).
 - `RU-13` engine purity source scan.
@@ -86,7 +91,7 @@ Extra engine tests:
   - REORDER ⇒ `P + qty ≥ min_eff × F`, unless capped or infeasible;
   - perishable ⇒ `P + qty ≤ max × F`;
   - `cover_after = (P + qty) / F`;
-  - uncapped qty is a multiple of MOQ/pack.
+  - uncapped qty ≥ MOQ, and is a multiple of pack size when one is set.
 - `RU-15` aggregation (C-016): two distributors, one excluded for weeks 38–39 → `a_k` = sum of each distributor's mean over its own eligible weeks.
 - `RU-16` sparse rows: a missing distributor-week counts as 0 inside that distributor's active window.
 - `RU-17` negative net (returns > shipped) is kept in sums; `a_k` floors at 0; history shorter than 12 weeks uses the available eligible weeks.
@@ -158,6 +163,12 @@ Extra Zoho tests:
 | RN-03 | Re-run before any draft (C-015) | Integration | Unchanged action/qty keeps its decision; a changed one re-opens with "data changed, re-review" |
 | RN-04 | Re-run after some drafts | Integration | Sent suppliers untouched; the others re-run |
 | RN-05 | Spot-check seed | Unit | The seed is stored on `run`, and the same seed gives the same five |
+| RN-07 | Pending draft issued mid-week (C-023) | Integration | W44 run sees FR-2026-W43-DIST001 as draft; procurement issues it Tue 10:00; Send at 12:00 → DIST001 lines **stay** `blocked_pending`, with no POST |
+| RN-08 | Mode switched mid-week | Integration | Run stamped `shadow`; Deepa switches to live on Tue 11:00 → the 12:00 send writes only `shadow` rows; next Monday's run is `live` |
+| RN-09 | Decision after the deadline | Integration | Approve lands after the cron set `rolled` → refused with a message; two approvers clicking at once → exactly one decision |
+| RN-10 | Unreviewed spot-check at the deadline | Integration | Keeps its auto qty (e.g. 2× std), not 1× std |
+| RN-11 | Festival reading pinned by the reference | Unit | The C-004 "any week overlaps" reading reproduces W43. The proportional and de-seasonalised readings are available **only** to the replay (D6) and are asserted to differ from W43 (Brown Rice 300 ≠ 600) |
+| RN-12 | Forward-simulation regression | Unit | port of `docs/stress-test/sim.js` onto `lib/engine` (M2) with the case data from W43 to 2027-W01 (crossing W53): W43 week equals the reference, ISO week arithmetic never skips W53, no negative stock |
 | RN-06 | Blocked run | E2E | A blocked or unmapped-SKU run shows a status banner on Upload and Review with the reason and the blocked list |
 | OC-01 | Stockout week (C-017) | Unit | on-hand 0 → stockout; on-hand < raw a12 → stockout; a large open PO doesn't hide it; the festival uplift doesn't change it |
 | OC-02 | Pilot vs manual rates | Unit | The same function gives identical results for both arms on mirrored fixtures |

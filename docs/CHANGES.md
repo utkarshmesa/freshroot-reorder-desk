@@ -17,7 +17,7 @@ These **clarify** the locked plan; none adds scope. They came from the Step 0 re
 | C-002 | **Auto-approve** means: action REORDER, non-perishable, not HD, no hold, not new, **no flags at all** (borderline, conflict, assumed-infeasible…), and qty ≤ 2× std (D16). | D8 and INSTRUCTIONS §4.9 differ slightly. Take the stricter reading. W43 output is unchanged. | D8, D16 |
 | C-003 | **Case-data stock date:** in case-data mode, `As_Of_Date = 2026-10-19` (a Monday) is read as SAP close **Sunday 2026-10-18 23:59 IST**, with a banner. Real uploads keep the strict D15 check (must be Sunday 23:59 IST). | The case file is dated Monday; D15 would reject it. | D15, §7 case-data mode |
 | C-004 | **"Weeks being ordered for"** = ISO weeks from (run week + lead time) to (run week + lead time + effective minimum − 1). Festival uplift applies if any of those weeks overlaps a festival or its 3-week pre-load window. Case month flags (Oct, Nov, Mar) are converted to festival events covering those months. The day-45 replay calibrates this and tests Raghav's literal reading (D6). | The plan doesn't define the window precisely. W43 is unaffected (every reading gives ×1.25). | D6, D4 |
-| C-005 | **Quantity order of operations:** std (×1.5 if HD) → raise in std steps until P + Q ≥ min_eff × F → round up to MOQ / pack → perishable cap `floor(max × F − P)`. **Infeasible** only if the cap is below MOQ. If a pack size is set and the capped qty isn't a multiple of it, add the flag `pack_mismatch` (goes to the queue anyway as perishable). | The reference gives 219 / 561, which are capped values that aren't MOQ multiples. | §8 step 5 |
+| C-005 | *(Corrected by C-023a: MOQ is a minimum, not a multiple.)* **Quantity order of operations:** std (×1.5 if HD) → raise in std steps until P + Q ≥ min_eff × F → round up to MOQ / pack → perishable cap `floor(max × F − P)`. **Infeasible** only if the cap is below MOQ. If a pack size is set and the capped qty isn't a multiple of it, add the flag `pack_mismatch` (goes to the queue anyway as perishable). | The reference gives 219 / 561, which are capped values that aren't MOQ multiples. | §8 step 5 |
 | C-006 | **Borderline** = cover within ±5% of `min_eff` or of `max`. With the default 2-week lead time every perishable has band 4–4, so borderline will be common. The replay reports how often. | Definition was "±5%" without a reference point. | §8 flags, D7 |
 | C-007 | **Zero-stock weeks:** dropped only when weekly stock history exists for that week. If it doesn't (case data, first live weeks), the run says "zero-stock exclusion skipped: no history". The replay uses the D20 rebuild. | Case data has one snapshot. | §8 step 4, D20 |
 | C-008 | **Spot-checks** = min(5, number of auto-approved items). | W43 has only 2 auto items. | D9 |
@@ -76,3 +76,32 @@ Until decided, Outcomes shows write-offs as "not available".
 | C-020 | **Replay method spec** (`docs/REPLAY_SPEC.md`, before M4): a weekly simulator (orders arrive after lead time; perishables age FIFO and are written off past shelf life); lost-sales imputation in stockout weeks; the baseline is Raghav's **actual** receipts through the **same** simulator. | Comparing a simulation with reality is biased, and actual sales are censored in stockout weeks. | Implements the off-map replay (D20); no product change | Write the spec at M4 start; keep the simulator minimal |
 | C-021 | **Non-working days** list in Settings: shifts Mon 08:30 / Tue 12:00 and counts "2 working days" correctly. | Holidays during the build and festival weeks. | New Settings item = scope change | Defer to v1.1. Interim: Deepa pauses the deadline cron for a holiday week via the runbook |
 | C-022 | **Vercel Pro** is required: Hobby cron runs at most once a day and isn't minute-precise, so the Mon 10:00 / Tue 12:00 deadlines and the run safety net need Pro. | Platform limit. | Cost, not scope (~USD 20/user/month) | Confirm that Freshroots' Vercel account is or will be Pro |
+
+---
+
+## C-023: Stress-test clarifications (23 Oct 2026)
+
+**Status: Applied in ARCHITECTURE / TEST_PLAN as in-scope clarifications. Please confirm.** Source: `docs/STRESS_TEST_STEP1.md`.
+
+| # | What | Why (stress-test finding) | Affects |
+|---|---|---|---|
+| a | **Corrects C-005:** MOQ is a **minimum**, not a multiple. `q = max(q, MOQ)`, then round up to a multiple of pack size only when one is set. | C-005 as worded ("round up to MOQ") turns Mango Drink's 750 into 1,000 and **fails the W43 reference**. | C-005, RU-10, RU-14 |
+| b | **Pending-draft block is decided at run time.** If the run's readback finds an un-issued earlier draft, the supplier's lines are `blocked_pending` for the whole week, even if that draft is issued before Send. | This week's quantities were computed without the pending draft (drafts never count). Sending after it's issued would double-order. C-015's live re-check alone allowed exactly that. | D11, C-015 |
+| c | **Mode is stamped on the run.** Live requires env + DB + `run.mode`, so a mid-week switch applies from next Monday. | Otherwise one week can be half shadow, half live. | D17, ADR-0005 |
+| d | A stock file with the **same** as-of as the last run is a correction (re-run); only an older one is rejected. | "As-of newer than last run" would otherwise block every correction of the current week's stock. | §7, UP-02 |
+| e | Decisions are **conditional on the line still being queued**. | Race between Raghav clicking at 11:59 and the 12:00 cron; two approvers on one card. | D8 |
+| f | An unreviewed **spot-check** keeps its auto-approved qty at the deadline. | Otherwise sampling an item for review cuts its order from up to 2× std to 1× std. | D8, D9 |
+| g | The **backfill** loads via the replay script (`COPY`) into its own table, not the web upload. **Case-data mode** runs only in a non-production Supabase project. | 19M rows can't go through a serverless upload; case SKUs mustn't mix with real data. | §7, D20 |
+| h | **Look-back:** "last k clean weeks" are searched within 26 weeks; engine input batches are sized by row count. | Zero-stock or held weeks push the 12 clean weeks back in time; fixed SKU batches can exceed response limits. | §8 step 5 |
+| i | **Infeasible perishable cards** show "order MOQ → cover X" and "skip → ~d days to stockout", both from engine numbers. | In the simulation, perishables were infeasible in 6–9 of 12 weeks while MOQ = std is assumed. | Review desk |
+
+## C-024 … C-027: Stress-test proposals (not applied)
+
+**Status: Proposed.**
+
+| # | Proposal | Why | My recommendation |
+|---|---|---|---|
+| C-024 | **Late run** (ready after Tue 12:00): apply the D8 deadline rule at the next 12:00 IST cron after the run is ready (Wed), and alert Deepa. | No rule exists. Today a late run would wait for Raghav with no deadline. | Adopt. It uses the existing rule, just shifted; Deepa owns the deadline (A17). |
+| C-025 | **POs placed outside the system between Monday's run and Send.** At Send, list the supplier's POs modified since `run.zoho_read.read_at`. If a new or changed line touches a SKU being sent, hold that line ("position changed since Monday, re-review") instead of sending. | Urgent phone orders or holdout planning in Zoho on Mon/Tue would be double-counted (D5 "count each unit once"). Costs ~1–3 calls per supplier. | Adopt. No invented threshold: any change to that SKU holds the line. |
+| C-026 | **Overdue open PO lines:** flag `overdue_po` on a card when open qty sits on a line past its Zoho expected delivery date. P is unchanged; the card goes to the queue. | Partially received POs that never close are common in Zoho. They'd inflate P forever, causing silent stockouts, and could also exhaust the 300-call budget. | Adopt the flag. **Week 1:** IT counts open and partially received POs in the real org (read-only) to size the budget. |
+| C-027 | **Email provider** for alerts (D19): Resend, or Freshroots' SMTP. Supabase Auth's mailer is only for login emails. | No sender is defined. | Your choice; Freshroots' SMTP if IT allows, else Resend. |
