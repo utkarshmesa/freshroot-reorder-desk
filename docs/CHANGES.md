@@ -105,3 +105,17 @@ Until decided, Outcomes shows write-offs as "not available".
 | C-025 | **POs placed outside the system between Monday's run and Send.** At Send, list the supplier's POs modified since `run.zoho_read.read_at`. If a new or changed line touches a SKU being sent, hold that line ("position changed since Monday, re-review") instead of sending. | Urgent phone orders or holdout planning in Zoho on Mon/Tue would be double-counted (D5 "count each unit once"). Costs ~1–3 calls per supplier. | Adopt. No invented threshold: any change to that SKU holds the line. |
 | C-026 | **Overdue open PO lines:** flag `overdue_po` on a card when open qty sits on a line past its Zoho expected delivery date. P is unchanged; the card goes to the queue. | Partially received POs that never close are common in Zoho. They'd inflate P forever, causing silent stockouts, and could also exhaust the 300-call budget. | Adopt the flag. **Week 1:** IT counts open and partially received POs in the real org (read-only) to size the budget. |
 | C-027 | **Email provider** for alerts (D19): Resend, or Freshroots' SMTP. Supabase Auth's mailer is only for login emails. | No sender is defined. | Your choice; Freshroots' SMTP if IT allows, else Resend. |
+
+---
+
+## C-028: Rules-engine interpretations (Milestone 2, 23 Oct 2026)
+
+**Status: Applied in `lib/engine` (the W43 reference passes with them). Please confirm.** None adds scope; each pins down wording the engine had to read one way.
+
+| # | What | Why | Affects |
+|---|---|---|---|
+| a | **Inactive distributor:** once the run week reaches its end week, it contributes nothing to forward demand. Before that, its weeks from the end week onward are left out. | With per-distributor averages (C-016), dropping only the weeks after the end date would leave a departed distributor's old average in demand indefinitely. | D3, §8 step 4 |
+| b | **Spot-checks are a marker, not a triage value.** A spot-checked item keeps triage `auto` and is also shown to Raghav. Unreviewed at Tuesday 12:00, it is ordered at its auto quantity (C-023f). | The W43 reference lists Peanut Butter and Brown Rice as `auto`, while C-008 makes both spot-checks that week. D9 says spot-checks are auto items *added to* the queue. | D9, C-008 |
+| c | **New SKUs (D1):** no festival uplift on the launch-estimate blend. The blend weight is linear: weight on actuals = (age − 4) ÷ 8 for weeks 5–12. A new SKU with no launch estimate uses actuals and is flagged. | §8 says "F = a12 × festival factor, or the D1 blend": the uplift attaches to a12 only. | D1, D6 |
+| d | **Holds:** a hold that names the SKU and overlaps anything from its history to the weeks being ordered for flags it `hold` and queues it. A hold on all distributors removes those SKU-weeks entirely, and the 12 weeks are taken from further back. A hold on specific distributors only (e.g. a credit hold) removes those distributor-weeks but does not queue the SKU. | D4 says held SKUs go to the queue and held distributor-weeks are excluded. INSTRUCTIONS §6 uses SKU holds for promotions, whose spike must not count as demand. | D4, A14, A15 |
+| e | **Needs a person, whatever the action:** hold, new SKU, short history, no demand, overdue PO line, infeasible, conflict. A reorder is auto only with **no** flags (C-002). Pauses otherwise follow C-001. | Consolidates D8, C-001, C-002 and C-026 into one rule. | D8 |
