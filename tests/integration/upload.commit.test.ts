@@ -4,7 +4,7 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { addWeeks, sundayOf } from "@/lib/isoweek";
 import { commitUpload, confirmUpload, stageUpload, toInputFile } from "@/lib/upload/server";
-import { as, service } from "./db";
+import { as, resetData, service } from "./db";
 
 const ROOT = path.resolve(__dirname, "../..");
 const file = (rel: string) => toInputFile(path.basename(rel), new Uint8Array(readFileSync(path.join(ROOT, rel))));
@@ -32,6 +32,7 @@ describe("M1 exit: case files load (case-data mode)", () => {
   let runWeek: string | null = null;
 
   beforeAll(async () => {
+    await resetData();
     const { uploadId, report } = await stage(CASE.map(file), true);
     expect(report.errors).toBe(0);
     const res = await commit(uploadId);
@@ -39,9 +40,10 @@ describe("M1 exit: case files load (case-data mode)", () => {
   });
 
   it("loads 15 SKUs, 4 suppliers, the ALL distributor, 240 sales rows and 15 stock rows", async () => {
-    expect(await count("sku")).toBe(15);
-    expect(await count("supplier")).toBe(4);
-    expect(await count("distributor")).toBe(1);
+    // Other test files may add their own rows; count the case IDs.
+    expect(await count("sku", (q) => q.like("id", "SKU%"))).toBe(15);
+    expect(await count("supplier", (q) => q.like("id", "DIST%"))).toBe(4);
+    expect(await count("distributor", (q) => q.eq("id", "ALL"))).toBe(1);
     expect(await count("sales_fact")).toBe(240);
     expect(await count("stock_snapshot")).toBe(15);
     expect(await count("event", (q) => q.eq("type", "festival"))).toBe(4);

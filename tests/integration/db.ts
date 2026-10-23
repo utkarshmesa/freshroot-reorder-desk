@@ -22,3 +22,18 @@ export async function as(who: Who): Promise<{ client: SupabaseClient; id: string
   cache.set(who, v);
   return v;
 }
+
+/** Empties the data tables (children first) so each test file starts from the seed state. */
+export async function resetData(): Promise<void> {
+  const svc = service();
+  const tables: Array<[string, string]> = [
+    ["decision", "id"], ["recommendation", "id"], ["draft_po", "id"], ["brief", "run_id"], ["alert", "id"],
+    ["run", "id"], ["sales_fact", "sku_id"], ["stock_snapshot", "sku_id"], ["backfill_sales", "sku_id"],
+    ["upload_staging", "id"], ["upload_hash", "hash"], ["upload", "id"], ["holdout", "sku_id"],
+    ["event", "id"], ["sku", "id"], ["distributor", "id"], ["supplier", "id"], ["change_log", "id"],
+  ];
+  for (const [t, col] of tables) {
+    const { error } = await svc.from(t).delete().not(col, "is", null);
+    if (error) throw new Error(`reset ${t}: ${error.message}`);
+  }
+}

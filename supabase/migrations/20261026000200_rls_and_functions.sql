@@ -165,7 +165,7 @@ begin
   if not public.is_owner() then raise exception 'Only the owner (Deepa) can switch mode (D17)' using errcode = '42501'; end if;
   if p_mode not in ('shadow', 'live') then raise exception 'Unknown mode %', p_mode; end if;
   perform set_config('app.reason', coalesce(p_reason, ''), true);
-  update public.app_mode set mode = p_mode, changed_by = auth.uid(), changed_at = now();
+  update public.app_mode set mode = p_mode, changed_by = auth.uid(), changed_at = now() where id;
 end $$;
 
 create or replace function public.set_holdout(p_sku_ids text[], p_reason text) returns void
@@ -176,10 +176,6 @@ begin
   delete from public.holdout where sku_id <> all (p_sku_ids);
   insert into public.holdout (sku_id, added_by) select unnest(p_sku_ids), auth.uid() on conflict do nothing;
 end $$;
-
--- Planner/admin edits of master data with a logged reason.
-create or replace function public.set_change_reason(p_reason text) returns void
-language sql as $$ select set_config('app.reason', coalesce(p_reason, ''), true) $$;
 
 -- All-or-nothing commit of a validated upload (BUILD_PLAN §7, ARCHITECTURE §3.3).
 create or replace function public.commit_upload(p_upload_id uuid) returns jsonb
