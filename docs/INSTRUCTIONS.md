@@ -31,7 +31,9 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
 - **Queue not cleared by Tuesday 12:00:**
   - unreviewed **non-perishable** items at risk of running out are auto-approved at 1× standard quantity;
   - everything else is **not ordered this week**, and next Monday's run looks at it again;
+  - cards Raghav already approved but didn't send **are sent to procurement automatically**;
   - Deepa gets an alert.
+- **Upload late, so the queue is only ready after Tuesday 12:00:** the same rule applies at **12:00 the next day**, and Deepa gets an alert.
 - **Draft not issued within 3 days:** procurement and Raghav get an alert. **Procurement must not issue a draft older than 3 days without Raghav's OK.**
 
 ---
@@ -59,8 +61,9 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
    - the **top 3 distributors** behind any change.
 3. For each card: **Approve**, **Change quantity**, or **Reject** (pick a reason and add a note). The reason is how the rules improve.
 4. **Spot-checks:** 5 cards a week are routine orders the system would have auto-approved. Check them like any other.
-5. Press **Send to procurement**.
-6. Use **Settings → Holds** for anything the rules can't know (see section 6).
+5. **"Infeasible" cards** (usually perishables): the order the rules want is smaller than the supplier's minimum order. The card shows both choices with numbers: "order the minimum → cover after X weeks, above the maximum" or "skip → about N days to stockout". Pick one. Unreviewed infeasible cards are **not ordered** at Tuesday 12:00, so do these first.
+6. Press **Send to procurement**. A supplier's draft is created once all of that supplier's cards are decided. Anything left goes at Tuesday 12:00.
+7. Use **Settings → Holds** for anything the rules can't know (see section 6).
 
 ### Procurement head
 1. Open Zoho → Purchase Orders → Drafts. System drafts have references starting `FR-` (e.g. `FR-2026-W45-DIST001`).
@@ -68,7 +71,10 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
 3. **Editing quantities in Zoho is fine.** The system reads your change next Monday and logs it.
 4. **Deleting a draft is fine.** It's logged as a rejection and won't be recreated that week.
 5. **Pause** recommendations come as a **hold list** of open PO lines. Defer or cancel them in Zoho where you can.
-6. Only one system draft per supplier exists at a time. If last week's is still pending, issue or delete it first; the new run won't create another.
+6. Only one system draft per supplier exists at a time. **If last week's draft is still pending when Monday's run starts, no new draft is created for that supplier that week**, even if you issue the old one on Tuesday. This week's quantities were worked out without it, so creating one would order twice. Those items come back next Monday.
+7. **Placing or changing a PO in Zoho on Monday or Tuesday** for a SKU in this week's run? That SKU's line is held back from the system draft and comes back next Monday, so nothing is ordered twice.
+8. **Close or cancel PO lines that won't be delivered.** Open quantity counts as stock on order. Lines past their expected delivery date are flagged on Raghav's card.
+9. Lead times, minimum order quantities and Zoho item mappings: send changes to **Raghav**, who updates **Settings › SKUs**. Procurement has read-only access in the app.
 
 ### Head of Operations (Deepa)
 - **Outcomes** page: pilot vs manual SKUs, stockout weeks, write-offs, order speed, rejection rate, spot-check results.
@@ -77,6 +83,7 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
   - **below 5%:** reviews may be rubber-stamps;
   - drafts left un-issued.
 - Monthly: read the **rule-change log**.
+- **Shadow → live:** switching in Settings takes effect from **next Monday's run**, never mid-week.
 
 ### CEO
 Read the **weekly brief** on the Outcomes page: what was ordered, what's at risk, and how the pilot SKUs are doing against the manually planned ones.
@@ -124,9 +131,9 @@ If one stops being true, tell its owner. Most can be changed in Settings.
 | A2 | Stock file = SAP on-hand **as at Sunday 23:59**. Zoho receipts dated Monday or later are added on top. | — | Priya |
 | A3 | SAP and Zoho record a goods receipt on the **same day**. If not, stock can be double-counted for a few days. | — | IT admin; the shadow period checks this |
 | A4 | All quantities are in **base units**. The Zoho item unit matches the SKU master; a mismatch blocks that SKU. | — | Procurement |
-| A5 | Missing **lead time** = **2 weeks**, shown as "assumed" on the card. | 2 wks ⚙ | Procurement → Settings › SKUs |
-| A6 | Missing **MOQ** = the standard quantity. | = std ⚙ | Procurement |
-| A7 | Missing **shelf life** for a perishable: maximum cover stays 4 weeks. | 4 wks ⚙ | Procurement |
+| A5 | Missing **lead time** = **2 weeks**, shown as "assumed" on the card. | 2 wks ⚙ | Procurement → Raghav → Settings › SKUs |
+| A6 | Missing **MOQ** = the standard quantity. | = std ⚙ | Procurement → Raghav |
+| A7 | Missing **shelf life** for a perishable: maximum cover stays 4 weeks. | 4 wks ⚙ | Procurement → Raghav |
 | A8 | Missing **unit cost**: outcomes show units, not ₹, for that SKU. | — | Finance |
 | A9 | **Standard reorder quantity** in the SKU master is Raghav's normal batch. | — | Raghav |
 | A10 | **Festival uplift** applies to demand for the weeks being ordered for, not to past sales. This is our reading of Raghav's Rule 4; the replay tests both readings. | +25% ⚙, 3-wk pre-load ⚙ | Raghav |
@@ -136,7 +143,7 @@ If one stops being true, tell its owner. Most can be changed in Settings.
 | A14 | Things the rules can't know (promotions, competitor moves, credit holds, one-off bulk orders, pack changes) are entered by people as **holds**. | — | Raghav / Sales |
 | A15 | A **hold** sends the SKU to Raghav and excludes the held weeks from averages. | — | Raghav |
 | A16 | **Manual (holdout) SKUs**: ~20%, chosen at go-live by category and perishability. Raghav plans them by hand all pilot; the system hides its suggestions for them. | List in Settings | Deepa |
-| A17 | **Tuesday 12:00 rule**: unreviewed non-perishable stockout risks order 1× standard; everything else waits a week. | ⚙ | Deepa |
+| A17 | **Tuesday 12:00 rule**: unreviewed non-perishable stockout risks order 1× standard; approved cards are sent; everything else waits a week. If the queue is ready late, the rule applies at 12:00 the next day. | ⚙ | Deepa |
 | A18 | **Auto-approve limit**: 2× standard quantity; anything larger goes to Raghav. | 2× ⚙ | Deepa |
 | A19 | **One system draft per supplier at a time**; drafts never count as stock. | — | — |
 | A20 | Corrections allowed for the **last 12 weeks** of sales. | 12 wks ⚙ | IT admin |
@@ -177,7 +184,7 @@ If one stops being true, tell its owner. Most can be changed in Settings.
 |---|---|
 | Rules, holds, review queue, festival dates | Raghav Kulkarni |
 | Uploads and SAP files | Priya Sharma (backup: IT SAP admin) |
-| Supplier details, MOQ, lead times, Zoho drafts | Procurement head |
+| Supplier details, MOQ, lead times (entered in Settings by Raghav), Zoho drafts | Procurement head |
 | Unit costs | Finance |
 | Outcomes, holdout list, deadlines, shadow/live mode | Deepa Nair |
 | Logins, Zoho connection, errors, alerts | IT admin |

@@ -1,6 +1,6 @@
 # Architecture: Freshroots Reorder Desk
 
-Status: **Draft for review** (Step 1, revised after the LLM council; see `COUNCIL_STEP1.md`) · Implements `BUILD_PLAN.md` v1.2 (locked) + `CHANGES.md` C-001…C-012 (approved) and C-015…C-018 (in-scope clarifications applied, awaiting confirmation).
+Status: **Draft for review** (Step 1, revised after the LLM council; see `COUNCIL_STEP1.md`) · Implements `BUILD_PLAN.md` v1.2 (locked) + `CHANGES.md` C-001…C-012, C-013 (procurement read-only), C-015…C-018 and C-022…C-027 (all approved 23 Oct 2026).
 Anything here that looks like new scope is flagged **[PENDING C-0xx]** and is not built until approved.
 
 ---
@@ -141,7 +141,7 @@ RLS is **on for every table**. Helper `has_role(r text)` reads `app_user.roles` 
 | `app_user`, `reason_code` | R self | R / R | R self | R/W | R self |
 
 - **Planner backup (Deepa):** the `planner` role is granted to Deepa permanently; `backup_from/to` only drives alert routing, not access (simplest).
-- **Note: procurement and supplier details.** BUILD_PLAN §3 and INSTRUCTIONS A5/A6 make procurement the owner of lead time / MOQ / Zoho mapping; D19 says procurement is "read-only in the app". **[PENDING C-013]** Proposed: procurement may edit only `lead_time_wks, moq, pack_size, zoho_item_id` on `sku` and `zoho_vendor_id` on `supplier`, via a `security definer` RPC that whitelists those columns. Until approved, procurement is read-only and planner/admin enter these values.
+- **Procurement is read-only** (D19; C-013 decided). Procurement sends lead time, MOQ and Zoho mapping to Raghav, who enters them in Settings.
 - **Screen gating** mirrors this table in middleware (each role sees only its screens/actions, §13). UI gating is convenience; RLS is the guard.
 - **RLS implementation rules** (council):
   - `has_role()` / `is_owner()` are `security definer`, `stable`, with `set search_path = public`, so they don't recurse through `app_user`'s own RLS.
@@ -223,6 +223,7 @@ There is **one draft per supplier per week** (reference `FR-{isoWeek}-{supplierI
 | `deadline_auto` | Tue 12:00 rule, non-perishable `C < min_eff`, 1× std | Yes |
 | `rolled` | Tue 12:00 rule, everything else unreviewed | No, re-evaluated next Monday |
 | `sent` | In a created draft (or a `shadow` row) | — |
+| `held_changed` | A PO for this SKU was created or changed in Zoho after Monday's read (C-025) | No, re-evaluated next Monday |
 | `blocked_pending` | The supplier had an un-issued draft from an earlier week **when this week's run read Zoho** (run step 3), or still has one at send | No, re-evaluated next Monday; alert. **Stays blocked even if the old draft is issued later this week**: this week's quantities were computed without it (drafts never count), so sending them would double-order (C-023) |
 
 **Send to procurement** (planner button, and automatically at Tue 12:00):
@@ -250,7 +251,14 @@ There is **one draft per supplier per week** (reference `FR-{isoWeek}-{supplierI
 - Every cron is idempotent: it checks an `alert` row or state before acting, so a double-fire is harmless.
 - Vercel cron runs in UTC; IST has no DST, so 08:30 / 10:00 / Tue 12:00 IST = 03:00 / 04:30 / Tue 06:30 UTC.
 
-**Late run:** if a run only becomes ready after Tue 12:00, the deadline rule for that week is **[PENDING C-024]**. Until decided, nothing is auto-approved and Deepa is alerted.
+**Late run (C-024):** if a run only becomes ready after Tue 12:00, the D8 deadline rule for that week applies at the **next 12:00 IST cron** after the run is ready (e.g. Wed 12:00). Deepa is alerted when the run becomes ready late.
+
+**POs placed outside the system since Monday (C-025):** at Send, before creating a supplier's draft, list that vendor's POs modified since `run.zoho_read.read_at` (~1–3 calls).
+- If any new or changed non-draft line touches a SKU being sent, that **line** is held (`held_changed`) with "position changed since Monday, re-review". It's re-evaluated next Monday; the rest of the supplier's lines are sent.
+- There's no threshold: any change to that SKU holds the line.
+- A held line doesn't stop the supplier's draft. Holding it can only order less, never double.
+
+**Overdue open PO lines (C-026):** the engine flags `overdue_po` when open quantity sits on a PO line past its Zoho expected delivery date. P is unchanged; the card goes to the queue and shows "{n} units on PO lines overdue since {date}".
 
 **Infeasible perishable cards** show both options from engine numbers. The stress test shows this card will be common while MOQ = std is assumed:
 - "Order MOQ {moq}: cover after {x} weeks, above the {max}-week maximum";
@@ -279,7 +287,7 @@ A corrected upload for the current week supersedes the run (`run.superseded_by`)
 | Vendors | `GET /contacts?contact_type=vendor` | 1 page |
 | Own drafts readback, **by stored `zoho_po_id`** (404 → deleted) | `GET /purchaseorders/{id}` | ≤ suppliers (~40) |
 | **Read total** | | **~120–220** |
-| Send: live re-check + search + create + read-back (live only, Tuesday) | `GET` ×3 + `POST` per supplier | ≤ 4 × suppliers ≈ 160 (separate invocation) |
+| Send: live re-check + changed-PO check (C-025) + search + create + read-back (live only, Tuesday) | `GET` ×4–6 + `POST` per supplier | ≤ 7 × suppliers ≈ 280 (separate invocation, has its own 300 budget) |
 
 All filter parameter names (status values, reference search, receipt date range) and `organization_id` handling are **assumptions until verified in the test org** (ADR-0002). Real responses recorded there become the mock fixtures.
 
@@ -362,7 +370,8 @@ All outcome maths lives in one pure module, `lib/outcomes`, shared by the Outcom
 ## 10. Monitoring and alerting
 
 - Every run step writes `run.status` + timings; failures write `run.error` and an `alert` row → email (D19).
-- Alerts: upload missed (Mon 10:00), run blocked, Zoho auth failure, Tue deadline applied, draft > 3 days, rejection-rate alarm, LLM fallback rate > 50% in a run (info to IT).
+- Email is sent through **Resend** (C-027) from `lib/alerts`, with `RESEND_API_KEY` server-side only. Supabase Auth's mailer is used only for login links.
+- Alerts: upload missed (Mon 10:00), run ready late (C-024), run blocked, Zoho auth failure, Tue deadline applied, draft > 3 days, rejection-rate alarm, LLM fallback rate > 50% in a run (info to IT).
 - Vercel logs for traces; Supabase logs for DB.
 
 ---

@@ -169,6 +169,9 @@ Extra Zoho tests:
 | RN-10 | Unreviewed spot-check at the deadline | Integration | Keeps its auto qty (e.g. 2× std), not 1× std |
 | RN-11 | Festival reading pinned by the reference | Unit | The C-004 "any week overlaps" reading reproduces W43. The proportional and de-seasonalised readings are available **only** to the replay (D6) and are asserted to differ from W43 (Brown Rice 300 ≠ 600) |
 | RN-12 | Forward-simulation regression | Unit | port of `docs/stress-test/sim.js` onto `lib/engine` (M2) with the case data from W43 to 2027-W01 (crossing W53): W43 week equals the reference, ISO week arithmetic never skips W53, no negative stock |
+| RN-13 | Late run (C-024) | Integration | Run ready Tue 15:00 → the Tue 12:00 cron did nothing for it; the Wed 12:00 cron applies D8; Deepa alerted at ready time |
+| RN-14 | PO changed since Monday (C-025) | Integration | Procurement creates a PO for SKU013 on Mon 14:00 → at Send, the SKU013 line is `held_changed`, other DIST001 lines are sent; a PO for another SKU holds nothing |
+| RN-15 | Overdue PO line (C-026) | Unit | An open line past its expected delivery date → flag `overdue_po`, queue, P unchanged |
 | RN-06 | Blocked run | E2E | A blocked or unmapped-SKU run shows a status banner on Upload and Review with the reason and the blocked list |
 | OC-01 | Stockout week (C-017) | Unit | on-hand 0 → stockout; on-hand < raw a12 → stockout; a large open PO doesn't hide it; the festival uplift doesn't change it |
 | OC-02 | Pilot vs manual rates | Unit | The same function gives identical results for both arms on mirrored fixtures |

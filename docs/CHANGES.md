@@ -30,7 +30,7 @@ These **clarify** the locked plan; none adds scope. They came from the Step 0 re
 
 ## C-013: Procurement edits supplier details (found in Step 1, 23 Oct 2026)
 
-**Status: Proposed**, awaiting Utkarsh.
+**Status: Decided 23 Oct 2026: procurement stays read-only** (the default below; D19 unchanged). INSTRUCTIONS A5/A6 and §6 reworded.
 
 | What | Why | Affects |
 |---|---|---|
@@ -39,7 +39,7 @@ These **clarify** the locked plan; none adds scope. They came from the Step 0 re
 
 ## C-014: No source for write-off data (Step 1; revised after the council)
 
-**Status: Proposed**, awaiting Utkarsh. This is the most important open item: write-offs are half of the success metric (§1) and of the day-45 gate, but no file in the §7 upload contract carries them.
+**Status: Proposed, waiting on SAP answers** (Utkarsh is asking Priya / the IT SAP admin, 23 Oct 2026). This is the most important open item: write-offs are half of the success metric (§1) and of the day-45 gate, but no file in the §7 upload contract carries them.
 
 **What the council found:** the inferred-loss formula below (Option A) gives **exactly zero** on replay history when that history has been *rebuilt* (D20 fallback: opening + receipts − sales). Whether Option A works for the gate therefore depends on whether SAP can export **real weekly stock history**.
 
@@ -57,7 +57,7 @@ Until decided, Outcomes shows write-offs as "not available".
 
 ## C-015 … C-018: Council clarifications (23 Oct 2026)
 
-**Status: Applied in ARCHITECTURE / TEST_PLAN as in-scope clarifications. Please confirm.** None adds a component, screen, input or decision; each removes an ambiguity the council showed would cause a bug. INSTRUCTIONS.md will be updated to match once confirmed.
+**Status: Approved** by Utkarsh, 23 Oct 2026. None adds a component, screen, input or decision; each removes an ambiguity the council showed would cause a bug. INSTRUCTIONS.md will be updated to match once confirmed.
 
 | # | What | Why | Affects |
 |---|---|---|---|
@@ -66,22 +66,22 @@ Until decided, Outcomes shows write-offs as "not available".
 | C-017 | **Outcome "cover"** in the stockout-week definition means shelf cover: SAP on-hand ÷ raw clean a12 (no open POs, no festival uplift). So stockout week = on-hand 0, or on-hand < 1 × raw a12. The queue's "days to stockout" also uses on-hand. | Using P (which includes open POs) and F (which includes the uplift) would let in-transit stock hide stockouts, and would make the metric depend on the engine's own forecast. That's unfair to manual SKUs. | §8.10, D8 sort |
 | C-018 | **Shadow-mode "agreement"** (§12 weeks 8–11) is measured from Raghav's approve / change / reject on every card. Unit-weighted agreement = approved unchanged ÷ decided. | No input exists for a separate manual plan. | §12, INSTRUCTIONS A23 |
 
-## C-019 … C-022: Proposals from the council (not applied)
+## C-019 … C-022: Proposals from the council
 
-**Status: Proposed.** Each needs your decision; for the scope ones I'll run nine-checks first if you want to pursue them.
+**Status:** C-019, C-020 and C-021 are still **proposed**. C-022 is **approved** (23 Oct 2026). Each needs your decision; for the scope ones I'll run nine-checks first if you want to pursue them.
 
 | # | Proposal | Raised because | Scope impact | My recommendation |
 |---|---|---|---|---|
 | C-019 | **Pilot vs manual method:** pick the holdout by **stratified random draw** within category × perishability (Deepa still approves; logged seed). Compare as difference-in-differences against each arm's pre-period, with a pre-registered bootstrap-by-SKU rule for the 8-week kill decision. | A16's hand-picked holdout invites selection bias, and the kill criterion has no noise rule. | Refines A16 and §1 kill criterion | Adopt the random draw (fits A16's "by category and perishability"); decide the statistics with the data:statistical-analysis pass at M4 |
 | C-020 | **Replay method spec** (`docs/REPLAY_SPEC.md`, before M4): a weekly simulator (orders arrive after lead time; perishables age FIFO and are written off past shelf life); lost-sales imputation in stockout weeks; the baseline is Raghav's **actual** receipts through the **same** simulator. | Comparing a simulation with reality is biased, and actual sales are censored in stockout weeks. | Implements the off-map replay (D20); no product change | Write the spec at M4 start; keep the simulator minimal |
 | C-021 | **Non-working days** list in Settings: shifts Mon 08:30 / Tue 12:00 and counts "2 working days" correctly. | Holidays during the build and festival weeks. | New Settings item = scope change | Defer to v1.1. Interim: Deepa pauses the deadline cron for a holiday week via the runbook |
-| C-022 | **Vercel Pro** is required: Hobby cron runs at most once a day and isn't minute-precise, so the Mon 10:00 / Tue 12:00 deadlines and the run safety net need Pro. | Platform limit. | Cost, not scope (~USD 20/user/month) | Confirm that Freshroots' Vercel account is or will be Pro |
+| C-022 | **Approved** (Freshroots will use Vercel Pro). **Vercel Pro** is required: Hobby cron runs at most once a day and isn't minute-precise, so the Mon 10:00 / Tue 12:00 deadlines and the run safety net need Pro. | Platform limit. | Cost, not scope (~USD 20/user/month) | Confirm that Freshroots' Vercel account is or will be Pro |
 
 ---
 
 ## C-023: Stress-test clarifications (23 Oct 2026)
 
-**Status: Applied in ARCHITECTURE / TEST_PLAN as in-scope clarifications. Please confirm.** Source: `docs/STRESS_TEST_STEP1.md`.
+**Status: Approved** by Utkarsh, 23 Oct 2026. Source: `docs/STRESS_TEST_STEP1.md`.
 
 | # | What | Why (stress-test finding) | Affects |
 |---|---|---|---|
@@ -95,9 +95,9 @@ Until decided, Outcomes shows write-offs as "not available".
 | h | **Look-back:** "last k clean weeks" are searched within 26 weeks; engine input batches are sized by row count. | Zero-stock or held weeks push the 12 clean weeks back in time; fixed SKU batches can exceed response limits. | §8 step 5 |
 | i | **Infeasible perishable cards** show "order MOQ → cover X" and "skip → ~d days to stockout", both from engine numbers. | In the simulation, perishables were infeasible in 6–9 of 12 weeks while MOQ = std is assumed. | Review desk |
 
-## C-024 … C-027: Stress-test proposals (not applied)
+## C-024 … C-027: Stress-test proposals
 
-**Status: Proposed.**
+**Status (23 Oct 2026):** C-024, C-025, C-026 **approved as recommended** and applied in ARCHITECTURE / TEST_PLAN / INSTRUCTIONS. C-027 **decided: Resend** for now.
 
 | # | Proposal | Why | My recommendation |
 |---|---|---|---|
