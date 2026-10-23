@@ -332,7 +332,8 @@ All filter parameter names (status values, reference search, receipt date range)
 
 ## 7. Upload (lib/upload)
 
-- Files go to private Storage bucket `uploads/{upload_id}/` first (avoids Vercel request-body limits), then a server action parses them.
+- Files go to the private Storage bucket under the uploader's own folder, `uploads/{user id}/{batch}/` (avoids Vercel request-body limits; a storage policy enforces the folder). A server action then downloads, parses and validates them.
+- **The validation report and staging rows are written by the server (service role) after it validates**, not with the uploader's JWT, so a report can't be forged through the API. The uploader commits with their own JWT through `commit_upload()`, which re-checks the report and every database-level rule (duplicate hash, as-of order, restatement window, foreign keys) in one transaction.
 - Parse with all cells as **strings** (leading zeros kept), then strict numbers (`"1,200"` → 1200; `"12a"` → error).
 - File type from headers; case-data header sets map per C-011.
 - Validation (§7) produces a report of `error` (red, blocks), `confirm` (yellow, needs a click, e.g. ±40% volume), `warning` (info, e.g. out-of-footprint distributor). Each message links to the matching Instructions section.

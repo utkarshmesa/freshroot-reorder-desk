@@ -17,7 +17,8 @@ async function stage(files: ReturnType<typeof file>[], caseDataMode = false) {
 async function commit(uploadId: string) {
   return commitUpload((await as("priya")).client, uploadId);
 }
-const count = async (table: string, filter?: (q: any) => any) => {
+type Query = ReturnType<ReturnType<ReturnType<typeof service>["from"]>["select"]>;
+const count = async (table: string, filter?: (q: Query) => Query) => {
   let q = service().from(table).select("*", { count: "exact", head: true });
   if (filter) q = filter(q);
   const { count: n, error } = await q;

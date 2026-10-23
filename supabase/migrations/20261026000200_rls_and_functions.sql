@@ -315,7 +315,8 @@ grant execute on function public.set_holdout(text[], text) to authenticated;
 
 -- Storage: private bucket for raw upload files, readable/writable by the uploader who owns the upload folder.
 insert into storage.buckets (id, name, public) values ('uploads', 'uploads', false) on conflict do nothing;
+-- Files go under the uploader's own folder: uploads/{user id}/{batch}/{file}.
 create policy uploads_insert on storage.objects for insert to authenticated
-  with check (bucket_id = 'uploads' and public.has_role('uploader'));
+  with check (bucket_id = 'uploads' and public.has_role('uploader') and (storage.foldername(name))[1] = auth.uid()::text);
 create policy uploads_read on storage.objects for select to authenticated
   using (bucket_id = 'uploads' and (owner = auth.uid() or public.has_role('admin')));

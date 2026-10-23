@@ -6,7 +6,7 @@ const pureForbidden = [
   { group: ["@/lib/zoho*", "@/lib/llm*", "@/lib/db*", "@/lib/run*", "@/lib/upload/server*", "@supabase/*", "next/*", "server-only"], message: "Pure module: no I/O imports (ARCHITECTURE §2.1)." },
 ];
 
-export default [
+const config = [
   ...nextVitals,
   ...nextTs,
   { ignores: [".next/**", "node_modules/**", "docs/stress-test/**", "playwright-report/**", "supabase/.temp/**"] },
@@ -24,3 +24,5 @@ export default [
     rules: { "no-restricted-imports": ["error", { patterns: [{ group: ["@/lib/zoho*"], message: "lib/llm must not import lib/zoho." }] }] },
   },
 ];
+
+export default config;

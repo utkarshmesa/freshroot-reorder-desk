@@ -61,7 +61,13 @@ tests/          # unit + e2e; fixtures for every acceptance test in BUILD_PLAN Â
 - Don't invent business numbers. Use the plan's defaults (D18) and show "assumed" in the UI.
 - Commit small, with clear messages. Never commit secrets or real Freshroots data beyond `data/case/`.
 
-## Commands (fill in as the project is scaffolded)
-- `npm run dev` / `npm test` / `npm run test:e2e` / `npm run lint` / `npm run typecheck`
-- `npx supabase db reset`: apply migrations + seed case data
-- `npm run replay`: day-45 replay (scripts/replay)
+## Commands
+Local setup: Docker running, then `npm install`, `npx supabase start` (ports 563xx so other local Supabase projects keep 543xx/553xx), copy keys from `npx supabase status` into `.env.local` (see `.env.example`; set `CASE_DATA_MODE=true` locally only).
+- `npm run dev`: app on http://localhost:3000 (local test users and password: `scripts/seed/users.ts`, local only)
+- `npm test`: unit tests (Vitest; pure modules)
+- `npm run test:integration`: database + RLS tests; **resets the local database** first
+- `npm run test:e2e`: Playwright (reuses a running dev server, or builds and starts one)
+- `npm run lint` / `npm run typecheck`
+- `npx supabase db reset`: apply migrations + seed (rules v1, reason codes, local users). Case data is loaded through the Upload screen in case-data mode.
+- `node --experimental-strip-types scripts/seed/build-seed.ts`: regenerate `supabase/seed.sql` after changing `lib/rules/defaults.ts` or the local users
+- `npm run replay`: day-45 replay (scripts/replay, milestone 4)

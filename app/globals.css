@@ -1,0 +1,78 @@
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1d1f;
+  --muted: #5f6368;
+  --line: #e2e2de;
+  --accent: #1f6f4a;
+  --accent-ink: #ffffff;
+  --bad: #b3261e;
+  --bad-bg: #fdecea;
+  --warn: #8a5a00;
+  --warn-bg: #fff4dc;
+  --info-bg: #eef3fb;
+  --ok-bg: #e8f4ec;
+  --radius: 8px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141515;
+    --surface: #1d1f1f;
+    --text: #e8e8e6;
+    --muted: #a3a6aa;
+    --line: #333636;
+    --accent: #5cc493;
+    --accent-ink: #0d1f16;
+    --bad: #ff8a80;
+    --bad-bg: #3a1d1b;
+    --warn: #ffcc66;
+    --warn-bg: #3a2f17;
+    --info-bg: #1c2633;
+    --ok-bg: #18301f;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); }
+header.top { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--line); }
+header.top .brand { font-weight: 700; margin-right: 8px; }
+header.top nav { display: flex; flex-wrap: wrap; gap: 4px; }
+header.top nav a { padding: 6px 10px; border-radius: 6px; text-decoration: none; color: var(--text); }
+header.top nav a[aria-current="page"] { background: var(--bg); font-weight: 600; }
+header.top .right { margin-left: auto; display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 13px; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+h1 { font-size: 22px; margin: 4px 0 16px; }
+h2 { font-size: 17px; margin: 28px 0 10px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+.muted { color: var(--muted); }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); }
+.badge.shadow { background: var(--info-bg); }
+.badge.live { background: var(--bad-bg); color: var(--bad); }
+.badge.assumed { background: var(--warn-bg); color: var(--warn); border-color: transparent; text-decoration: none; }
+.banner { padding: 10px 14px; border-radius: var(--radius); margin-bottom: 14px; }
+.banner.info { background: var(--info-bg); }
+.banner.ok { background: var(--ok-bg); }
+.banner.bad { background: var(--bad-bg); color: var(--bad); }
+.issue { display: flex; gap: 10px; padding: 8px 10px; border-radius: 6px; margin: 4px 0; align-items: flex-start; }
+.issue.error { background: var(--bad-bg); }
+.issue.confirm { background: var(--warn-bg); }
+.issue.warning, .issue.info { background: var(--info-bg); }
+.issue .lvl { font-weight: 700; min-width: 64px; text-transform: uppercase; font-size: 12px; padding-top: 2px; }
+table { width: 100%; border-collapse: collapse; background: var(--surface); }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+form.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+input, select, textarea { font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); }
+button, .button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; text-decoration: none; display: inline-block; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.subnav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+.subnav a { padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; color: var(--text); background: var(--surface); font-size: 13px; }
+.subnav a[aria-current="page"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.err { color: var(--bad); }
+@media (max-width: 640px) { header.top .right { margin-left: 0; width: 100%; } }
