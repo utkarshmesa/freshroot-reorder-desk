@@ -110,7 +110,7 @@ Until decided, Outcomes shows write-offs as "not available".
 
 ## C-028: Rules-engine interpretations (Milestone 2, 23 Oct 2026)
 
-**Status: Applied in `lib/engine` (the W43 reference passes with them). Please confirm.** None adds scope; each pins down wording the engine had to read one way.
+**Status: Approved** by Utkarsh, 23 Oct 2026 (a–e; f added after the M2 review, same principle). None adds scope; each pins down wording the engine had to read one way.
 
 | # | What | Why | Affects |
 |---|---|---|---|
