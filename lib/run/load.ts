@@ -35,25 +35,34 @@ export async function loadEngineInput(
   const fromWeek = addWeeks(run.iso_week, -rules.params.lookbackWks);
   const snapshot = sundayCloseIST(lastWeek);
 
-  const [skus, dists, events, holdout, stock] = await Promise.all([
+  const [skus, dists, events, holdout] = await Promise.all([
     must(db.from("sku").select("*").order("id"), "skus"),
     must(db.from("distributor").select("id, status, start_week, end_week"), "distributors"),
     must(db.from("event").select("type, start_date, end_date, sku_ids, distributor_ids, uplift_pct, preload_wks"), "events"),
     must(db.from("holdout").select("sku_id"), "holdout"),
-    must(db.from("stock_snapshot").select("sku_id, as_of_ts, on_hand_units").lte("as_of_ts", snapshot).gte("as_of_ts", sundayCloseIST(prevWeek(fromWeek))), "stock"),
   ]);
 
   const skuRows = skus as Array<Record<string, unknown>>;
+  const ids = skuRows.map((s) => String(s.id));
   const onHand: Record<string, number> = {};
   const stockHistory: EngineInput["stockHistory"] = {};
   const snapMs = Date.parse(snapshot);
-  for (const s of stock as Array<{ sku_id: string; as_of_ts: string; on_hand_units: number }>) {
-    if (Date.parse(s.as_of_ts) === snapMs) onHand[s.sku_id] = s.on_hand_units;
-    else (stockHistory[s.sku_id] ??= {})[weekOfDate(istDate(s.as_of_ts))] = s.on_hand_units;
+  for (let i = 0; i < ids.length; i += SKU_BATCH) {
+    const doc = (await must(
+      db.rpc("engine_stock", { p_sku_ids: ids.slice(i, i + SKU_BATCH), p_from: sundayCloseIST(prevWeek(fromWeek)), p_to: snapshot }),
+      "stock",
+    )) as Record<string, Array<[string, number]>>;
+    for (const [skuId, rows] of Object.entries(doc)) {
+      for (const [ts, units] of rows) {
+        // Every snapshot, including this week's, is stock history for the zero-stock exclusion (C-007):
+        // on-hand 0 at the end of a week means that week's sales were cut short.
+        (stockHistory[skuId] ??= {})[weekOfDate(istDate(ts))] = units;
+        if (Date.parse(ts) === snapMs) onHand[skuId] = units;
+      }
+    }
   }
 
   const sales: EngineInput["sales"] = [];
-  const ids = skuRows.map((s) => String(s.id));
   for (let i = 0; i < ids.length; i += SKU_BATCH) {
     const doc = (await must(db.rpc("engine_inputs", { p_sku_ids: ids.slice(i, i + SKU_BATCH), p_from_week: fromWeek, p_to_week: lastWeek }), "sales")) as Record<
       string,

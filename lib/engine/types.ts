@@ -109,6 +109,7 @@ export type Recommendation = {
   /** D9: an auto-approved item also shown to Raghav as a spot-check. Triage stays "auto" (the W43 reference). */
   spotCheck: boolean;
   stdQty: number;
+  packSize: number | null;
   flags: Flag[];
   assumed: Assumed[];
   holdout: boolean;

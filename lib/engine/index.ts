@@ -10,8 +10,8 @@ export function runEngine(input: EngineInput): EngineOutput {
   const recommendations = assignSpotChecks(decided, input.spotCheckSeed, input.rules.spotChecks);
 
   const notes: string[] = [];
-  const noHistory = skus.filter((s) => input.onHand[s.id] !== undefined && Object.keys(input.stockHistory[s.id] ?? {}).length === 0).length;
-  if (noHistory > 0) notes.push(`Zero-stock exclusion skipped for ${noHistory} SKU(s): no weekly stock history yet (C-007).`);
+  const short = skus.filter((s) => input.onHand[s.id] !== undefined && Object.keys(input.stockHistory[s.id] ?? {}).length < input.rules.avgLongWks).length;
+  if (short > 0) notes.push(`Zero-stock exclusion is partial for ${short} SKU(s): fewer than ${input.rules.avgLongWks} weeks of stock snapshots so far (C-007).`);
   return { runWeek: input.runWeek, recommendations, notes };
 }
 

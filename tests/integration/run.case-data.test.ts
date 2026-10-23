@@ -30,7 +30,7 @@ describe("RU-01 through the database", () => {
     const { data } = await service().from("run").select("status, zoho_read, notes, locked_until").eq("id", runId).single();
     expect(data!.status).toBe("ready");
     expect(data!.zoho_read).toMatchObject({ skipped: "case_data" });
-    expect(data!.notes).toEqual(["Zero-stock exclusion skipped for 15 SKU(s): no weekly stock history yet (C-007)."]);
+    expect(data!.notes).toEqual(["Zero-stock exclusion is partial for 15 SKU(s): fewer than 12 weeks of stock snapshots so far (C-007)."]);
     expect(data!.locked_until).toBeNull();
   });
 
@@ -76,12 +76,57 @@ describe("RU-01 through the database", () => {
   });
 });
 
+describe("loader: last week's zero stock is excluded (review finding 2, RU-12 through the database)", () => {
+    it("a Sunday on-hand of 0 drops that week from the averages", async () => {
+      // W43: SKU002 sells 10 because it ran out (on-hand 0 on Sunday 25 Oct); everything else normal.
+      const { client, id } = await as("priya");
+      const sales = `iso_week,sku_id,distributor_id,shipped_units,returns_units\n${Array.from({ length: 15 }, (_, i) => `SKU${String(i + 1).padStart(3, "0")}`)
+        .map((s) => `2026-W43,${s},ALL,${s === "SKU002" ? 10 : 100},0`)
+        .join("\n")}\n`;
+      const stock = `as_of_ts,sku_id,on_hand_units\n${Array.from({ length: 15 }, (_, i) => `SKU${String(i + 1).padStart(3, "0")}`)
+        .map((s) => `2026-10-25,${s},${s === "SKU002" ? 0 : 500}`)
+        .join("\n")}\n`;
+      const files = [toInputFile("sales_w43.csv", new TextEncoder().encode(sales)), toInputFile("stock_w43.csv", new TextEncoder().encode(stock))];
+      const staged = await stageUpload({ user: client, service: service(), userId: id, files, caseDataMode: true });
+      expect(staged.report.errors).toBe(0);
+      if (staged.report.unconfirmed) {
+        const { confirmUpload } = await import("@/lib/upload/server");
+        await confirmUpload({ user: client, service: service(), userId: id, uploadId: staged.uploadId, confirmedCodes: ["volume_change"] });
+      }
+      const res = await commitUpload(client, staged.uploadId);
+      expect(res.run_week).toBe("2026-W44");
+      expect((await processRun(service(), res.run_id!, { caseDataMode: true })).status).toBe("ready");
+      const { data } = await service().from("recommendation").select("sku_id, inputs").eq("run_id", res.run_id!).in("sku_id", ["SKU002", "SKU003"]);
+      const a12 = Object.fromEntries((data ?? []).map((r) => [r.sku_id, (r.inputs as { a12: number; cleanWeeks: number }).a12]));
+      const clean = Object.fromEntries((data ?? []).map((r) => [r.sku_id, (r.inputs as { cleanWeeks: number }).cleanWeeks]));
+      // SKU002: W43 dropped → a12 over W31–W42 = 84.17 (unchanged by the 10); 16 clean weeks of 17.
+      expect(clean.SKU002).toBe(16);
+      expect(a12.SKU002).toBeCloseTo((91 + 78 + 89 + 82 + 80 + 79 + 82 + 89 + 80 + 86 + 86 + 83) / 12, 6);
+      expect(clean.SKU003).toBe(17);
+    });
+  });
+
+describe("fail closed when there is no stock snapshot", () => {
+  it("blocks the whole run, not just every SKU", async () => {
+    const svc = service();
+    const { data: run } = await svc
+      .from("run")
+      .insert({ iso_week: "2026-W50", rule_version_id: (await svc.from("rule_version").select("id").eq("is_current", true).single()).data!.id, spot_check_seed: 1 })
+      .select("id")
+      .single();
+    const r = await processRun(svc, run!.id, { caseDataMode: true });
+    expect(r.status).toBe("blocked");
+    const { data } = await svc.from("run").select("error").eq("id", run!.id).single();
+    expect(data!.error).toMatchObject({ reason: "no_stock_snapshot" });
+  });
+});
+
 describe("fail closed outside case-data mode (milestone 2: no Zoho reader yet)", () => {
   it("blocks the run and records an alert", async () => {
     const svc = service();
     const { data: run } = await svc
       .from("run")
-      .insert({ iso_week: "2026-W44", rule_version_id: (await svc.from("rule_version").select("id").eq("is_current", true).single()).data!.id, spot_check_seed: 1 })
+      .insert({ iso_week: "2026-W51", rule_version_id: (await svc.from("rule_version").select("id").eq("is_current", true).single()).data!.id, spot_check_seed: 1 })
       .select("id")
       .single();
     const r = await processRun(svc, run!.id, { caseDataMode: false });

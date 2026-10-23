@@ -13,6 +13,8 @@ import type { DistributorInput, EventInput, SalesRow, TopDistributor } from "./t
 export type History = {
   cleanWeeks: IsoWeek[];
   historyStart: IsoWeek | null;
+  /** First week of the window a12 is computed over. */
+  windowStart: IsoWeek | null;
   a12: number;
   a4: number;
   trendA12: number;
@@ -29,18 +31,23 @@ export function history(args: {
   runWeek: IsoWeek;
   rules: RuleParams;
   sales: SalesRow[]; // this SKU's rows only
+  firstSaleWeek: IsoWeek | null;
   distributors: Map<string, DistributorInput>;
   holds: EventInput[];
   stockHistory: Partial<Record<IsoWeek, number>> | undefined;
 }): History {
-  const { skuId, runWeek, rules, sales, distributors, holds, stockHistory } = args;
+  const { skuId, runWeek, rules, sales, distributors, holds, stockHistory, firstSaleWeek } = args;
   const last = addWeeks(runWeek, -1);
   const lookbackStart = addWeeks(runWeek, -rules.lookbackWks);
   const inRange = sales.filter((r) => compareWeeks(r.week, lookbackStart) >= 0 && compareWeeks(r.week, last) <= 0);
-  const empty: History = { cleanWeeks: [], historyStart: null, a12: 0, a4: 0, trendA12: 0, trendA4: 0, topDistributors: [], usedStockHistory: false };
+  const empty: History = { cleanWeeks: [], historyStart: null, windowStart: null, a12: 0, a4: 0, trendA12: 0, trendA4: 0, topDistributors: [], usedStockHistory: false };
   if (inRange.length === 0) return empty;
 
-  const historyStart = inRange.map((r) => r.week).sort(compareWeeks)[0]!;
+  // History starts at the first sale when the master says so (weeks with no rows then count as 0);
+  // otherwise at the earliest row we have.
+  const earliestRow = inRange.map((r) => r.week).sort(compareWeeks)[0]!;
+  const historyStart =
+    firstSaleWeek && compareWeeks(firstSaleWeek, earliestRow) < 0 ? (compareWeeks(firstSaleWeek, lookbackStart) > 0 ? firstSaleWeek : lookbackStart) : earliestRow;
   const usedStockHistory = stockHistory !== undefined && Object.keys(stockHistory).length > 0;
   const skuHolds = holds.filter((h) => coversSku(h, skuId) && h.distributorIds.length === 0);
   const cleanWeeks = weekRange(historyStart, last).filter(
@@ -95,6 +102,7 @@ export function history(args: {
   return {
     cleanWeeks,
     historyStart,
+    windowStart: w12[0] ?? null,
     a12: sumOf(w12, false),
     a4: sumOf(w4, false),
     trendA12: sumOf(w12, true),

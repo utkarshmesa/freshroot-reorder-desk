@@ -9,7 +9,10 @@ import { runEngine } from "@/lib/engine";
 import type { Recommendation } from "@/lib/engine/types";
 import { loadEngineInput, type RunRow } from "./load";
 
-export type ProcessResult = { runId: string; status: string; claimed: boolean };
+export type ProcessResult = { runId: string; status: string; claimed: boolean; error?: string };
+
+/** After this many failed attempts a run is blocked and the admin alerted, instead of retrying forever. */
+export const MAX_ATTEMPTS = 3;
 
 function lineState(r: Recommendation): string | null {
   if (r.holdout || r.action === "blocked") return null;
@@ -53,7 +56,7 @@ export async function processRun(db: SupabaseClient, runId: string, opts: { case
   }
   const now = (opts.now ?? new Date()).toISOString();
   try {
-    const { data: run, error } = await db.from("run").select("id, iso_week, rule_version_id, mode, spot_check_seed, status").eq("id", runId).single();
+    const { data: run, error } = await db.from("run").select("id, iso_week, rule_version_id, mode, spot_check_seed, status, step_attempts").eq("id", runId).single();
     if (error || !run) throw new Error(error?.message ?? "run not found");
     let status = (run as RunRow).status;
 
@@ -68,17 +71,31 @@ export async function processRun(db: SupabaseClient, runId: string, opts: { case
 
     if (status === "engine") {
       const input = await loadEngineInput(db, run as RunRow, { caseDataMode: opts.caseDataMode });
+      // A missing stock file blocks the whole run (CLAUDE.md: fail closed), not just every SKU.
+      if (Object.keys(input.onHand).length === 0) {
+        await block(db, runId, "no_stock_snapshot", `No stock snapshot for the Sunday before ${(run as RunRow).iso_week}.`);
+        return { runId, status: "blocked", claimed: true };
+      }
       const out = runEngine(input);
+      // Only write if this run is still the current one for its week (a correction may have superseded it).
+      const current = await db.from("run").select("id").eq("id", runId).is("superseded_by", null).maybeSingle();
+      if (!current.data) return { runId, status: "superseded", claimed: true };
       const del = await db.from("recommendation").delete().eq("run_id", runId);
       if (del.error) throw new Error(del.error.message);
       const ins = await db.from("recommendation").insert(out.recommendations.map((r) => toRow(runId, r)));
       if (ins.error) throw new Error(ins.error.message);
-      await db.from("run").update({ status: "ready", ready_at: now, notes: out.notes, error: null }).eq("id", runId);
-      status = "ready";
+      const done = await db.from("run").update({ status: "ready", ready_at: now, notes: out.notes, error: null }).eq("id", runId).is("superseded_by", null).select("id");
+      status = done.data?.length ? "ready" : "superseded";
     }
     return { runId, status, claimed: true };
   } catch (e) {
-    await db.from("run").update({ error: { reason: "step_failed", message: e instanceof Error ? e.message : String(e) } }).eq("id", runId);
+    const message = e instanceof Error ? e.message : String(e);
+    const { data } = await db.from("run").select("step_attempts").eq("id", runId).single();
+    if ((data?.step_attempts ?? 0) >= MAX_ATTEMPTS) {
+      await block(db, runId, "step_failed", `The run failed ${MAX_ATTEMPTS} times: ${message}`);
+      return { runId, status: "blocked", claimed: true, error: message };
+    }
+    await db.from("run").update({ error: { reason: "step_failed", message } }).eq("id", runId);
     throw e;
   } finally {
     await db.rpc("release_run", { p_run_id: runId });
@@ -87,9 +104,17 @@ export async function processRun(db: SupabaseClient, runId: string, opts: { case
 
 /** Safety net: process every run that isn't finished (called by the cron route). */
 export async function processPendingRuns(db: SupabaseClient, opts: { caseDataMode: boolean }): Promise<ProcessResult[]> {
-  const { data, error } = await db.from("run").select("id").is("superseded_by", null).in("status", ["queued", "zoho_read", "mapping", "readback", "engine", "triage"]);
+  // Milestone 2 advances only these states; zoho_read/mapping/readback arrive with the Zoho reader.
+  const { data, error } = await db.from("run").select("id").is("superseded_by", null).in("status", ["queued", "engine"]);
   if (error) throw new Error(error.message);
   const out: ProcessResult[] = [];
-  for (const r of data ?? []) out.push(await processRun(db, r.id as string, opts));
+  for (const r of data ?? []) {
+    // One failing run must not stop the others.
+    try {
+      out.push(await processRun(db, r.id as string, opts));
+    } catch (e) {
+      out.push({ runId: r.id as string, status: "error", claimed: true, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
   return out;
 }

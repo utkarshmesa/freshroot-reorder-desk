@@ -19,7 +19,11 @@ export function applyDeadline(lines: DeadlineLine[], opts: { deadlineStdMultiple
     if (rec.spotCheck && rec.triage === "auto") return { skuId: rec.skuId, state: "deadline_auto", qty: rec.qty };
     const stockoutRisk =
       rec.action === "reorder" && !rec.flags.includes("perishable") && !rec.flags.includes("infeasible") && rec.cover !== null && rec.cover < rec.minEff;
-    if (stockoutRisk) return { skuId: rec.skuId, state: "deadline_auto", qty: Math.max(Math.round(opts.deadlineStdMultiple * rec.stdQty), rec.moq) };
+    if (stockoutRisk) {
+      let qty = Math.max(Math.round(opts.deadlineStdMultiple * rec.stdQty), rec.moq);
+      if (rec.packSize) qty = Math.ceil(qty / rec.packSize) * rec.packSize;
+      return { skuId: rec.skuId, state: "deadline_auto", qty };
+    }
     return { skuId: rec.skuId, state: "rolled", qty: 0 };
   });
 }

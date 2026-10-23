@@ -123,6 +123,11 @@ describe("TR-03 Tuesday 12:00 rule (pure part) and RN-10", () => {
     expect(s).toMatchObject({ state: "deadline_auto", qty: 600 });
   });
 
+  it("the deadline quantity is rounded up to the pack size (review finding 9)", () => {
+    const [s] = applyDeadline([{ rec: { ...by("NP"), packSize: 24 }, state: "queued" }], { deadlineStdMultiple: 1 });
+    expect(s).toMatchObject({ state: "deadline_auto", qty: 312 }); // 300 → 13 packs of 24
+  });
+
   it("decided lines are left alone", () => {
     const [s] = applyDeadline([{ rec: by("PER"), state: "approved" }], { deadlineStdMultiple: 1 });
     expect(s!.state).toBe("approved");

@@ -119,3 +119,14 @@ Until decided, Outcomes shows write-offs as "not available".
 | c | **New SKUs (D1):** no festival uplift on the launch-estimate blend. The blend weight is linear: weight on actuals = (age − 4) ÷ 8 for weeks 5–12. A new SKU with no launch estimate uses actuals and is flagged. | §8 says "F = a12 × festival factor, or the D1 blend": the uplift attaches to a12 only. | D1, D6 |
 | d | **Holds:** a hold that names the SKU and overlaps anything from its history to the weeks being ordered for flags it `hold` and queues it. A hold on all distributors removes those SKU-weeks entirely, and the 12 weeks are taken from further back. A hold on specific distributors only (e.g. a credit hold) removes those distributor-weeks but does not queue the SKU. | D4 says held SKUs go to the queue and held distributor-weeks are excluded. INSTRUCTIONS §6 uses SKU holds for promotions, whose spike must not count as demand. | D4, A14, A15 |
 | e | **Needs a person, whatever the action:** hold, new SKU, short history, no demand, overdue PO line, infeasible, conflict. A reorder is auto only with **no** flags (C-002). Pauses otherwise follow C-001. | Consolidates D8, C-001, C-002 and C-026 into one rule. | D8 |
+| f | **Days to stockout** (queue sort only) = SAP on-hand ÷ forward demand × 7. The numerator is shelf stock (C-017), and the denominator is the forecast **including** any festival uplift, so the sort reflects how fast stock will actually run down. The outcome metric (stockout week) still uses raw a12 (C-017). | The M2 code review asked whether C-017's "raw" applies to the sort too. For urgency, the forecast is the better denominator. | D8 sort, C-017 |
+
+## C-029: High-demand quantity can come out below the normal quantity (found in the M2 review)
+
+**Status: For information. No change possible without changing the locked reference.**
+
+BUILD_PLAN §8 says: "Q = std × (1.5 if HD else 1); raise in std steps until P + Q ≥ min_eff × F". Starting at 1.5 × std and stepping in whole std can land *below* the result without high demand.
+
+**The W43 reference itself shows this:** Mango Drink (HD) orders **750**. Without the HD flag the same SKU would order 1,000 (500 → 1,000). Any rule that stops HD ordering less than non-HD would change the locked acceptance test, so the engine keeps the literal rule.
+
+**Recommendation:** the day-45 replay reports how often this happens and what it costs. Raghav decides afterwards whether to change the rule, through a rule-change proposal (nine-checks, then a new reference).

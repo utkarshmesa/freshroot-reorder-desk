@@ -40,6 +40,7 @@ export function decide(sku: SkuInput, input: EngineInput, distributors: Map<stri
     triage: "none",
     spotCheck: false,
     stdQty: sku.stdQty,
+    packSize: sku.packSize,
     flags: [],
     assumed,
     holdout: input.holdout.includes(sku.id),
@@ -72,7 +73,11 @@ export function decide(sku: SkuInput, input: EngineInput, distributors: Map<stri
   const blockedReason = input.blocked[sku.id];
   if (blockedReason) return { ...base, action: "blocked", flags: ["unmapped"], blockedReason };
   const onHand = input.onHand[sku.id];
-  if (onHand === undefined) return { ...base, action: "blocked", flags: ["no_stock"], blockedReason: "No stock row in this week's snapshot" };
+  if (onHand === undefined) {
+    // An inactive SKU orders nothing anyway; don't list it as blocked.
+    if (sku.status === "inactive") return { ...base, flags: ["inactive"] };
+    return { ...base, action: "blocked", flags: ["no_stock"], blockedReason: "No stock row in this week's snapshot" };
+  }
 
   const holds = input.events.filter((e) => e.type === "hold");
   const festivals = input.events.filter((e) => e.type === "festival");
@@ -84,6 +89,7 @@ export function decide(sku: SkuInput, input: EngineInput, distributors: Map<stri
     distributors,
     holds,
     stockHistory: input.stockHistory[sku.id],
+    firstSaleWeek: sku.firstSaleWeek,
   });
   const pos = position(sku.id, onHand, input.poLines, input.receipts, runWeek);
   const flags = new Set<Flag>();
@@ -115,8 +121,8 @@ export function decide(sku: SkuInput, input: EngineInput, distributors: Map<stri
   const C = F > 0 ? P / F : P > 0 ? Number.POSITIVE_INFINITY : 0;
   const HD = !isNew && h.trendA4 > rules.highDemandRatio * h.trendA12; // D6: raw sales
 
-  // A hold naming this SKU anywhere from its history to the weeks being ordered for.
-  const span = { from: mondayOf(h.historyStart ?? runWeek), to: sundayOf(weeks.at(-1) as IsoWeek) };
+  // A hold naming this SKU anywhere from the 12-week window in use to the weeks being ordered for (C-028d).
+  const span = { from: mondayOf(h.windowStart ?? runWeek), to: sundayOf(weeks.at(-1) as IsoWeek) };
   if (holds.some((e: EventInput) => e.skuIds.includes(sku.id) && e.startDate <= span.to && e.endDate >= span.from)) flags.add("hold");
   if (pos.lines.some((l) => l.overdue)) flags.add("overdue_po");
   if (HD) flags.add("high_demand");
@@ -139,7 +145,10 @@ export function decide(sku: SkuInput, input: EngineInput, distributors: Map<stri
     if (HD) flags.add("conflict");
   } else if (C < minEff || HD) {
     action = "reorder";
-    if (!flags.has("infeasible")) {
+    if (flags.has("infeasible")) {
+      // D7: min_eff above the maximum. Nothing is ordered automatically; Raghav gets both choices (C-023i).
+      infeasibleOptions = { orderMoq: { qty: moq, coverAfter: (P + moq) / F }, skip: { daysToStockout } };
+    } else {
       let q = sku.stdQty * (HD ? rules.highDemandMultiplier : 1);
       while (P + q < minEff * F) q += sku.stdQty;
       q = Math.max(q, moq); // MOQ is a minimum (C-023a)

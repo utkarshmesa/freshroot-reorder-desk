@@ -30,6 +30,14 @@ describe("RU-02 perishable infeasible goes to the queue", () => {
     expect(r.flags).toContain("infeasible");
     expect(r.triage).toBe("queue");
     expect(r.qty).toBe(0);
+    // Both choices are on the card here too (review finding 5): MOQ = std 100 → (100 + 100) / 100 = 2 weeks.
+    expect(r.infeasibleOptions).toEqual({ orderMoq: { qty: 100, coverAfter: 2 }, skip: { daysToStockout: 7 } });
+  });
+
+  it("a short shelf life makes the band infeasible under D7 (shelf 6 → max 3 < min_eff 4), with both choices", () => {
+    const r = rec(oneSku({ perishable: true, shelfLifeWks: 6 }, flat(12, 100), { onHand: { S1: 150 } }));
+    expect([r.minEff, r.max, r.action, r.qty, r.triage]).toEqual([4, 3, "reorder", 0, "queue"]);
+    expect(r.infeasibleOptions).not.toBeNull();
   });
 
   it("perishable cap below MOQ, with both choices on the card (C-005, C-023i)", () => {
@@ -50,6 +58,15 @@ describe("RU-03 high demand + pause gives the conflict flag", () => {
     expect(r.action).toBe("pause");
     expect(r.flags).toEqual(expect.arrayContaining(["high_demand", "conflict"]));
     expect(r.triage).toBe("queue");
+  });
+});
+
+describe("C-029 high-demand quantity follows the plan literally", () => {
+  it("starts at 1.5 × std and steps by std, so it can be below the non-HD result (as Mango Drink in W43)", () => {
+    // std 100, F 116.67 (HD) → need 6 × F − P; P = 470 → need 230.0: HD 150 → 250; non-HD would be 100 → 200 → 300.
+    const r = rec(oneSku({}, [...flat(8, 100), ...flat(4, 150)], { onHand: { S1: 470 } }));
+    expect(r.flags).toContain("high_demand");
+    expect(r.qty).toBe(250);
   });
 });
 
@@ -172,6 +189,12 @@ describe("RU-07 a hold excludes weeks and queues the SKU", () => {
     expect(r.a12).toBe(100);
   });
 
+  it("a hold that ended before the 12-week window doesn't keep queueing the SKU (review finding 7)", () => {
+    const sales = rows("D1", flat(20, 100));
+    const r = rec(oneSku({}, [], { sales, onHand: { S1: 1000 }, events: [hold(addWeeks(RUN, -18), addWeeks(RUN, -17), ["S1"], ["D1"])] }));
+    expect(r.flags).not.toContain("hold");
+  });
+
   it("a distributor-only hold (credit hold) trims averages but doesn't queue the SKU", () => {
     const r = rec(oneSku({}, [], { sales: rows("D1", flat(12, 100)), onHand: { S1: 500 }, events: [hold(addWeeks(RUN, -2), addWeeks(RUN, -1), [], ["D1"])] }));
     expect(r.flags).not.toContain("hold");
@@ -218,7 +241,7 @@ describe("RU-08 to RU-12", () => {
     expect(withHistory.a12).toBe(100);
     const out = runEngine(oneSku({}, weekly, { onHand: { S1: 500 } }));
     expect(out.recommendations[0]!.a12).toBe(92.5);
-    expect(out.notes).toContain("Zero-stock exclusion skipped for 1 SKU(s): no weekly stock history yet (C-007).");
+    expect(out.notes).toContain("Zero-stock exclusion is partial for 1 SKU(s): fewer than 12 weeks of stock snapshots so far (C-007).");
   });
 });
 
@@ -268,6 +291,18 @@ describe("RU-19 and ST-05", () => {
     const known = rec(oneSku({ perishable: true, leadTimeWks: 1, moq: 50, shelfLifeWks: 6, unitCostInr: 20 }, flat(12, 100), { onHand: { S1: 380 } }));
     expect(known.assumed).toEqual([]);
     expect(known.max).toBe(3); // min(4, 0.5 × 6)
+  });
+
+  it("history starts at the first sale when the master gives it: missing weeks count as 0 (review finding 11)", () => {
+    // Rows only for the last 4 weeks, but the SKU first sold 12 weeks ago.
+    const r = rec(oneSku({ firstSaleWeek: addWeeks(RUN, -12) }, flat(4, 120), { onHand: { S1: 2000 } }));
+    expect(r.a12).toBe(40);
+    expect(r.cleanWeeks).toBe(12);
+  });
+
+  it("an inactive SKU with no stock row is inactive, not blocked", () => {
+    const r = rec(oneSku({ status: "inactive" }, flat(12, 100), { onHand: {} }));
+    expect([r.action, r.flags]).toEqual(["none", ["inactive"]]);
   });
 
   it("missing stock row → blocked, never ordered (fail closed per SKU)", () => {
