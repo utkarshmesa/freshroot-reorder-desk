@@ -199,7 +199,7 @@ begin
   if not public.has_role('uploader') then raise exception 'Only an uploader can commit' using errcode = '42501'; end if;
 
   select * into u from public.upload where id = p_upload_id for update;
-  if not found or u.by <> auth.uid() then raise exception 'Upload not found'; end if;
+  if not found or u."by" <> auth.uid() then raise exception 'Upload not found'; end if;
   if u.status <> 'staged' then raise exception 'Upload is %, not staged', u.status; end if;
   if coalesce((u.validation_report ->> 'errors')::int, 1) > 0 then
     raise exception 'Upload has validation errors; nothing committed';
@@ -215,7 +215,8 @@ begin
 
   -- Masters first (unknown IDs in the same upload become known).
   insert into public.supplier (id, name)
-  select r ->> 'id', r ->> 'name' from public.upload_staging where upload_id = u.id and kind = 'supplier'
+  select r ->> 'id', r ->> 'name'
+  from public.upload_staging s, lateral (select s.row as r) x where s.upload_id = u.id and s.kind = 'supplier'
   on conflict (id) do update set name = excluded.name;
 
   insert into public.distributor (id, name, region, status, start_week, end_week)

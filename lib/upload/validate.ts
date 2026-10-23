@@ -347,7 +347,7 @@ export function prepareUpload(files: InputFile[], ctx: UploadContext): PreparedU
     if (!haveSales) g.issues.push({ level: "error", code: "stock_without_sales", message: `Stock is as at the end of ${stockWeek}, but sales for ${stockWeek} aren't loaded. Upload sales_weekly for ${stockWeek} too.`, link: LINK.uploader });
     // Active SKUs missing from the stock file are blocked from ordering in the run (fail closed per SKU).
     const inFile = new Set(stock.map((r) => String(r.sku_id)));
-    const activeSkus = new Set([...ctx.knownSkuIds, ...rowsOf("sku").filter((r) => r.status !== "inactive").map((r) => String(r.id))]);
+    const activeSkus = new Set([...(ctx.activeSkuIds ?? ctx.knownSkuIds), ...rowsOf("sku").filter((r) => r.status !== "inactive").map((r) => String(r.id))]);
     const missingStock = [...activeSkus].filter((s) => !inFile.has(s)).sort();
     if (missingStock.length) g.issues.push({ level: "warning", code: "stock_missing_sku", message: `No stock row for ${missingStock.length} SKU(s): ${missingStock.slice(0, 20).join(", ")}. They will be blocked from ordering this week.` });
   }

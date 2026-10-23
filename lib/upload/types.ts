@@ -40,6 +40,7 @@ export type StagingRow = { kind: StagingKind; row: Record<string, string | numbe
 export type UploadContext = {
   caseDataMode: boolean;
   knownSkuIds: ReadonlySet<string>;
+  activeSkuIds?: ReadonlySet<string>; // defaults to knownSkuIds
   knownDistributorIds: ReadonlySet<string>;
   knownSupplierIds: ReadonlySet<string>;
   committedHashes: ReadonlySet<string>;
