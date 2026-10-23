@@ -42,3 +42,8 @@ test("only Deepa sees the shadow/live switch", async ({ page }) => {
   await page.goto("/settings/mode");
   await expect(page.getByLabel("Mode")).toBeVisible();
 });
+
+test("the cron route needs its secret and is never redirected to sign-in", async ({ request }) => {
+  const res = await request.get("/api/run", { maxRedirects: 0 });
+  expect(res.status()).toBe(401);
+});

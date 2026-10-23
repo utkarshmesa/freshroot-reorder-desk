@@ -1,7 +1,9 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { requireAction } from "@/lib/auth/me";
 import { caseDataMode, serviceClient, userClient } from "@/lib/db/server";
+import { processRun } from "@/lib/run/worker";
 import { isOwnUploadPath } from "@/lib/upload/paths";
 import { commitUpload, confirmUpload, stageUpload, toInputFile, type CommitResult } from "@/lib/upload/server";
 import type { Report } from "@/lib/upload/types";
@@ -39,6 +41,13 @@ export async function confirmAndCommit(uploadId: string, confirmedCodes: string[
     const user = await userClient();
     if (confirmedCodes.length > 0) await confirmUpload({ user, service: serviceClient(), userId: session.userId, uploadId, confirmedCodes });
     const result = await commitUpload(user, uploadId);
+    // Start the run straight away; the cron route picks it up if this is cut short (ARCHITECTURE §4).
+    if (result.run_id) {
+      const runId = result.run_id;
+      after(async () => {
+        await processRun(serviceClient(), runId, { caseDataMode: caseDataMode() }).catch((e) => console.error(`run ${runId} failed; the cron will retry`, e));
+      });
+    }
     revalidatePath("/upload");
     return { ok: true, result };
   } catch (e) {
