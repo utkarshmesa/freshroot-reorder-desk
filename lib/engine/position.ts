@@ -7,7 +7,8 @@ import type { PoLine, Receipt } from "./types";
 export type PositionLine = { poNumber: string; openQty: number; expectedDate: string | null; overdue: boolean };
 export type Position = { onHand: number; openPoQty: number; receiptsAfterSnapshot: number; position: number; lines: PositionLine[] };
 
-const COUNTS = new Set<PoLine["status"]>(["open", "partially_received", "received", "billed", "closed"]);
+// "closed" is excluded: a PO closed by hand with quantity left over will not deliver it.
+const COUNTS = new Set<PoLine["status"]>(["open", "partially_received", "received", "billed"]);
 
 export function position(skuId: string, onHand: number, poLines: PoLine[], receipts: Receipt[], runWeek: IsoWeek): Position {
   const monday = mondayOf(runWeek);

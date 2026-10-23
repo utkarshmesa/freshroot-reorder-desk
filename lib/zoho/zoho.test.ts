@@ -61,7 +61,9 @@ describe("auth (ZO-08, ZO-12)", () => {
     await http.get("/items");
     const acct = z.requests.filter((r) => new URL(r.url).origin === ACCOUNTS);
     expect(acct).toHaveLength(1);
-    expect(new URL(acct[0]!.url).searchParams.get("grant_type")).toBe("refresh_token");
+    expect(new URLSearchParams(acct[0]!.body).get("grant_type")).toBe("refresh_token");
+    // The secret and refresh token travel in the body, never in the URL (review M3, finding 13).
+    expect(acct[0]!.url).not.toMatch(/secret|refresh_token|client_id/);
     expect(z.writes()).toEqual([]);
   });
 });
@@ -79,6 +81,13 @@ describe("retries, rate limit and budget (ZO-09, ZO-10)", () => {
     for (let i = 0; i < 5; i++) z.script.push({ status: 503 });
     await expect(http.get("/items")).rejects.toThrow(ZohoApiError);
     expect(sleeps).toEqual([1000, 2000, 4000, 8000]);
+  });
+
+  it("caps a huge Retry-After at 60 s", async () => {
+    const { z, http, sleeps } = setup();
+    z.script.push({ status: 429, headers: { "Retry-After": "3600" } });
+    await http.get("/items");
+    expect(sleeps).toEqual([60_000]);
   });
 
   it("keeps under the per-minute limit", async () => {
@@ -108,7 +117,7 @@ describe("reading a run (ZO-01…03, ZO-11, ZO-15)", () => {
   it("ZO-11 pages through long lists", async () => {
     const { z, http } = setup();
     for (let i = 0; i < 450; i++) z.items.set(`x-${i}`, { item_id: `x-${i}`, status: "active" });
-    const r = await readForRun(http, { runWeek: "2026-W43", today: "2026-10-19", itemToSku, now: () => new Date("2026-10-19T03:00:00Z") });
+    const r = await readForRun(http, { runWeek: "2026-W43", itemToSku, now: () => new Date("2026-10-19T03:00:00Z") });
     expect(Object.keys(r.items)).toHaveLength(450);
   });
 
@@ -119,7 +128,7 @@ describe("reading a run (ZO-01…03, ZO-11, ZO-15)", () => {
     z.addPo({ purchaseorder_id: "3", status: "billed", line_items: [{ item_id: "it-2", quantity: 50, quantity_received: 0 }] });
     z.addPo({ purchaseorder_id: "4", status: "draft", reference_number: "FR-2026-W42-DIST001", line_items: [{ item_id: "it-1", quantity: 500 }] });
     z.addPo({ purchaseorder_id: "5", status: "cancelled", line_items: [{ item_id: "it-1", quantity: 400 }] });
-    const r = await readForRun(http, { runWeek: "2026-W43", today: "2026-10-19", itemToSku, now: () => new Date("2026-10-19T03:00:00Z") });
+    const r = await readForRun(http, { runWeek: "2026-W43", itemToSku, now: () => new Date("2026-10-19T03:00:00Z") });
     expect(r.poLines.map((l) => [l.poId, l.skuId, l.status, l.ordered, l.received])).toEqual([
       ["1", "SKU001", "open", 300, 0],
       ["2", "SKU001", "partially_received", 300, 100],
@@ -134,9 +143,36 @@ describe("reading a run (ZO-01…03, ZO-11, ZO-15)", () => {
     z.addPo({ purchaseorder_id: "9", status: "received", line_items: [{ item_id: "it-1", quantity: 200, quantity_received: 200 }] });
     z.addReceive({ receive_id: "r1", date: "2026-10-18", purchaseorder_id: "9", line_items: [{ item_id: "it-1", quantity: 80 }] });
     z.addReceive({ receive_id: "r2", date: "2026-10-19", purchaseorder_id: "9", line_items: [{ item_id: "it-1", quantity: 120 }] });
-    const r = await readForRun(http, { runWeek: "2026-W43", today: "2026-10-19", itemToSku, now: () => new Date("2026-10-19T03:00:00Z") });
+    const r = await readForRun(http, { runWeek: "2026-W43", itemToSku, now: () => new Date("2026-10-19T03:00:00Z") });
     expect(r.receipts).toEqual([{ poId: "9", skuId: "SKU001", date: "2026-10-19", qty: 120 }]);
     expect(r.poLines).toEqual([]); // a fully received PO isn't "open" — its Monday receipt still counts
+  });
+
+  it("lists every status that can hold quantity on order, including issued and partially billed (review M3, finding 5)", async () => {
+    const { z, http } = setup();
+    z.addPo({ purchaseorder_id: "i", status: "issued", line_items: [{ item_id: "it-1", quantity: 10 }] });
+    z.addPo({ purchaseorder_id: "pb", status: "partially_billed", line_items: [{ item_id: "it-2", quantity: 20 }] });
+    z.addPo({ purchaseorder_id: "pa", status: "pending_approval", line_items: [{ item_id: "it-1", quantity: 999 }] });
+    const r = await readForRun(http, { runWeek: "2026-W43", itemToSku, now: () => new Date("2026-10-19T03:00:00Z") });
+    expect(r.poLines.map((l) => [l.poId, l.status])).toEqual([
+      ["i", "open"],
+      ["pb", "billed"],
+    ]);
+  });
+
+  it("filters receipts to Monday or later itself, whatever Zoho returns", async () => {
+    const { z, http } = setup();
+    z.ignoreDateFilter = true;
+    z.addReceive({ receive_id: "old", date: "2026-10-10", purchaseorder_id: "9", line_items: [{ item_id: "it-1", quantity: 5 }] });
+    z.addReceive({ receive_id: "new", date: "2026-10-20", purchaseorder_id: "9", line_items: [{ item_id: "it-1", quantity: 7 }] });
+    const r = await readForRun(http, { runWeek: "2026-W43", itemToSku, now: () => new Date("2026-10-19T03:00:00Z") });
+    expect(r.receipts.map((x) => x.qty)).toEqual([7]);
+  });
+
+  it("a 404 without Zoho's not-found code fails closed instead of meaning 'deleted'", async () => {
+    const { z, http } = setup();
+    z.script.push({ status: 404, body: { code: 9999, message: "gateway: no route" } });
+    await expect(readPo(http, "77")).rejects.toThrow(/no route/);
   });
 
   it("an unknown PO status fails closed", () => {
@@ -156,6 +192,9 @@ describe("ZO-07 mapping check and A4 unit check", () => {
     ["it-1", { item_id: "it-1", unit: "Units", status: "active" }],
     ["it-2", { item_id: "it-2", unit: "Cases", status: "active" }],
     ["it-3", { item_id: "it-3", unit: "Units", status: "inactive" }],
+    ["it-4", { item_id: "it-4", unit: "Units", status: "active" }],
+    ["it-5", { item_id: "it-5", unit: "Units", status: "active" }],
+    ["it-6", { item_id: "it-6", unit: "Units", status: "active" }],
   ]);
   const vendors = new Map([["v-1", { contact_id: "v-1", status: "active" }]]);
   const base = { status: "active", uom: "Units", supplierId: "DIST001", zohoVendorId: "v-1" };
@@ -168,9 +207,9 @@ describe("ZO-07 mapping check and A4 unit check", () => {
         { ...base, id: "MISSING", zohoItemId: "it-9" },
         { ...base, id: "INACTIVEITEM", zohoItemId: "it-3" },
         { ...base, id: "UNIT", zohoItemId: "it-2" },
-        { ...base, id: "NOSUP", zohoItemId: "it-1", supplierId: null },
-        { ...base, id: "NOVENDOR", zohoItemId: "it-1", zohoVendorId: null },
-        { ...base, id: "BADVENDOR", zohoItemId: "it-1", zohoVendorId: "v-9" },
+        { ...base, id: "NOSUP", zohoItemId: "it-4", supplierId: null },
+        { ...base, id: "NOVENDOR", zohoItemId: "it-5", zohoVendorId: null },
+        { ...base, id: "BADVENDOR", zohoItemId: "it-6", zohoVendorId: "v-9" },
         { ...base, id: "RETIRED", zohoItemId: null, status: "inactive" },
       ],
       items,
@@ -179,6 +218,20 @@ describe("ZO-07 mapping check and A4 unit check", () => {
     expect(Object.keys(blocked).sort()).toEqual(["BADVENDOR", "INACTIVEITEM", "MISSING", "NOITEM", "NOSUP", "NOVENDOR", "UNIT"]);
     expect(blocked.UNIT).toMatch(/Unit mismatch.*Units.*Cases/);
     expect(blocked.NOVENDOR).toMatch(/Settings › Suppliers/);
+  });
+
+  it("blocks active SKUs that share one Zoho item (review M3, finding 4)", () => {
+    const blocked = mappingCheck(
+      [
+        { ...base, id: "A", zohoItemId: "it-1" },
+        { ...base, id: "B", zohoItemId: "it-1" },
+        { ...base, id: "OLD", zohoItemId: "it-1", status: "inactive" },
+      ],
+      items,
+      vendors,
+    );
+    expect(Object.keys(blocked).sort()).toEqual(["A", "B"]);
+    expect(blocked.A).toMatch(/more than one active SKU \(A, B\)/);
   });
 });
 
@@ -190,6 +243,14 @@ describe("draft read-back (ZO-05, ZO-06, D11)", () => {
     status,
     reference_number: reference,
     line_items: [{ item_id: "it-1", quantity: qty }],
+  });
+
+  it("pending approval is still pending, not issued (review M3, finding 3)", () => {
+    expect(readback(po("pending_approval", 600), requested)).toMatchObject({ status: "created", pending: true });
+  });
+
+  it("an unknown status on a system draft fails closed", () => {
+    expect(() => readback(po("on_hold", 600), requested)).toThrow(/Unknown Zoho status/);
   });
 
   it("ZO-05 not found or cancelled → deleted (a procurement rejection)", () => {

@@ -18,7 +18,9 @@ export class FakeZoho {
   validToken = "tok-1";
   refreshTokenValid = true;
   tokensMinted = 0;
-  requests: Array<{ method: string; url: string }> = [];
+  requests: Array<{ method: string; url: string; body?: string }> = [];
+  /** When true, list endpoints ignore date filters (to test our own date filtering). */
+  ignoreDateFilter = false;
   /** Responses to return for the next API calls, in order, before normal handling resumes. */
   script: Scripted[] = [];
 
@@ -29,10 +31,10 @@ export class FakeZoho {
     this.receives.set(r.receive_id, r);
   }
 
-  readonly fetch: Fetch = async (url, init) => {
-    this.requests.push({ method: init.method, url });
+  fetch: Fetch = async (url, init) => {
+    this.requests.push({ method: init.method, url, body: init.body });
     const u = new URL(url);
-    if (u.origin === ACCOUNTS) return this.token(u, init.method);
+    if (u.origin === ACCOUNTS) return this.token(u, init.method, init.body);
     if (init.headers.Authorization !== `Zoho-oauthtoken ${this.validToken}`) return res(401, { code: 57, message: "You are not authorized to perform this operation" });
     const next = this.script.shift();
     if (next) return res(next.status, next.body ?? { code: 1, message: `scripted ${next.status}` }, next.headers);
@@ -54,8 +56,8 @@ export class FakeZoho {
       return po ? res(200, { code: 0, message: "success", purchaseorder: po }) : res(404, { code: 1002, message: "Purchase order does not exist." });
     }
     if (path === "/purchasereceives") {
-      const from = u.searchParams.get("date_start") ?? "0000";
-      const to = u.searchParams.get("date_end") ?? "9999";
+      const from = this.ignoreDateFilter ? "0000" : (u.searchParams.get("date_start") ?? "0000");
+      const to = this.ignoreDateFilter ? "9999" : (u.searchParams.get("date_end") ?? "9999");
       return paged("purchasereceives", [...this.receives.values()].filter((r) => r.date >= from && r.date <= to).map(withoutLines));
     }
     m = /^\/purchasereceives\/([^/]+)$/.exec(path);
@@ -68,9 +70,11 @@ export class FakeZoho {
     return res(404, { code: 5, message: `fake: no route ${path}` });
   };
 
-  private token(u: URL, method: string) {
+  private token(u: URL, method: string, body?: string) {
     if (method !== "POST" || u.pathname !== "/oauth/v2/token") return res(400, { error: "invalid_request" });
-    if (u.searchParams.get("grant_type") !== "refresh_token") return res(400, { error: "unsupported_grant_type" });
+    if ([...u.searchParams.keys()].length) return res(400, { error: "fake: credentials must be in the body, not the URL" });
+    const form = new URLSearchParams(body ?? "");
+    if (form.get("grant_type") !== "refresh_token") return res(400, { error: "unsupported_grant_type" });
     if (!this.refreshTokenValid) return res(200, { error: "invalid_code" });
     this.tokensMinted++;
     this.validToken = `tok-${this.tokensMinted + 1}`;
@@ -92,5 +96,6 @@ function withoutLines<T extends { line_items: unknown }>(o: T): Omit<T, "line_it
 
 function res(status: number, body: unknown, headers: Record<string, string> = {}) {
   const h = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
-  return { status, headers: { get: (n: string) => h[n.toLowerCase()] ?? null }, text: async () => JSON.stringify(body) };
+  const text = JSON.stringify(body); // serialised now: a sent response never changes afterwards
+  return { status, headers: { get: (n: string) => h[n.toLowerCase()] ?? null }, text: async () => text };
 }

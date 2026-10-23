@@ -1,13 +1,11 @@
 // Read-only Zoho calls for a run (§8 step 1). Uses only GET. Endpoint and filter names are assumptions
 // until the week-1 test-org check (ADR-0002) records real responses.
-import { mondayOf, type IsoDate, type IsoWeek } from "@/lib/isoweek";
+import { mondayOf, type IsoWeek } from "@/lib/isoweek";
 import type { PoLine, Receipt } from "@/lib/engine/types";
 import { ZohoApiError, type ZohoHttp } from "./http";
-import { toPoLines, toReceipts, type ZohoItem, type ZohoPo, type ZohoPoSummary, type ZohoReceive, type ZohoVendor } from "./map";
+import { COUNTED_ZOHO_STATUSES, toPoLines, toReceipts, type ZohoItem, type ZohoPo, type ZohoPoSummary, type ZohoReceive, type ZohoVendor } from "./map";
 
 const PER_PAGE = 200;
-/** Statuses whose lines can still have quantity on order (C-026 review: not just "open"). */
-export const OPEN_PO_STATUSES = ["open", "partially_received", "billed"] as const;
 
 type Page = { page_context?: { has_more_page?: boolean } };
 
@@ -32,11 +30,11 @@ export type ZohoRead = {
 };
 
 /** Everything the run needs from Zoho, mapped to our SKUs. */
-export async function readForRun(http: ZohoHttp, args: { runWeek: IsoWeek; today: IsoDate; itemToSku: ReadonlyMap<string, string>; now: () => Date }): Promise<ZohoRead> {
-  const { runWeek, today, itemToSku } = args;
+export async function readForRun(http: ZohoHttp, args: { runWeek: IsoWeek; itemToSku: ReadonlyMap<string, string>; now: () => Date }): Promise<ZohoRead> {
+  const { runWeek, itemToSku } = args;
 
   const summaries = new Map<string, ZohoPoSummary>();
-  for (const status of OPEN_PO_STATUSES) {
+  for (const status of COUNTED_ZOHO_STATUSES) {
     for (const po of await listAll<ZohoPoSummary>(http, "/purchaseorders", "purchaseorders", { status })) summaries.set(po.purchaseorder_id, po);
   }
   const poLines: PoLine[] = [];
@@ -46,7 +44,8 @@ export async function readForRun(http: ZohoHttp, args: { runWeek: IsoWeek; today
   }
 
   const monday = mondayOf(runWeek);
-  const receiveList = await listAll<{ receive_id: string; date: string }>(http, "/purchasereceives", "purchasereceives", { date_start: monday, date_end: today });
+  // Start date only: an end date in UTC could fall before Monday in IST (review M3, finding 7).
+  const receiveList = await listAll<{ receive_id: string; date: string }>(http, "/purchasereceives", "purchasereceives", { date_start: monday });
   const receipts: Receipt[] = [];
   for (const r of receiveList.filter((x) => x.date.slice(0, 10) >= monday).sort((a, b) => a.receive_id.localeCompare(b.receive_id))) {
     const { purchasereceive } = await http.get<{ purchasereceive: ZohoReceive }>(`/purchasereceives/${encodeURIComponent(r.receive_id)}`);
@@ -59,13 +58,16 @@ export async function readForRun(http: ZohoHttp, args: { runWeek: IsoWeek; today
   return { readAt: args.now().toISOString(), calls: http.callCount, poLines, receipts, items, vendors, poCount: summaries.size };
 }
 
+/** Zoho's "does not exist" code (assumption until the scope check records it). Any other 404 fails closed. */
+export const ZOHO_NOT_FOUND_CODE = 1002;
+
 /** One system draft by its stored id (read-back by id, not reference: procurement may edit the reference). Null = deleted. */
 export async function readPo(http: ZohoHttp, poId: string): Promise<ZohoPo | null> {
   try {
     const { purchaseorder } = await http.get<{ purchaseorder: ZohoPo }>(`/purchaseorders/${encodeURIComponent(poId)}`);
     return purchaseorder;
   } catch (e) {
-    if (e instanceof ZohoApiError && e.status === 404) return null;
+    if (e instanceof ZohoApiError && e.status === 404 && e.code === ZOHO_NOT_FOUND_CODE) return null;
     throw e;
   }
 }

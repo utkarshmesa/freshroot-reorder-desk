@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { ZohoHttp } from "@/lib/zoho/http";
+import { ZohoHttp, type Fetch } from "@/lib/zoho/http";
 import { dbTokenSource } from "@/lib/zoho/token";
 import { processRun } from "@/lib/run/worker";
 import { commitUpload, stageUpload, toInputFile } from "@/lib/upload/server";
@@ -167,5 +167,37 @@ describe("draft read-back (ZO-05, ZO-06, RN-07)", () => {
     // The edited draft is now an issued PO, so its 450 counts towards Multigrain Bread's position.
     expect((r.SKU011!.inputs as { position: number }).position).toBe(460 + 450);
     expect(z.writes()).toEqual([]);
+
+    // A second run reads the same pending draft again: nothing new is logged (review M3, finding 9).
+    const before = (await svc.from("change_log").select("id").eq("entity", "draft_po")).data!.length;
+    await run(await freshRun());
+    expect((await svc.from("change_log").select("id").eq("entity", "draft_po")).data!.length).toBe(before);
+  });
+
+  it("read-back runs before the PO read: a draft issued in between is held back AND counted (review M3, finding 6)", async () => {
+    const svc = service();
+    await svc.from("draft_po").update({ status: "issued" }).eq("status", "created"); // clear the earlier test's pending draft
+    await svc.from("draft_po").insert({
+      run_id: firstRun, supplier_id: "DIST002", iso_week: "2026-W43", mode: "live", reference: "FR-2026-W43-DIST002",
+      zoho_po_id: "d-race", status: "created", requested_lines: [{ sku_id: "SKU003", item_id: "it-SKU003", qty: 600 }],
+    });
+    z.addPo({ purchaseorder_id: "d-race", status: "draft", reference_number: "FR-2026-W43-DIST002", line_items: [{ item_id: "it-SKU003", quantity: 600, quantity_received: 0 }] });
+    // Procurement issues the draft right after our read-back request, before the PO list.
+    const original = z.fetch;
+    let issued = false;
+    z.fetch = async (url: string, init: Parameters<Fetch>[1]) => {
+      const res = await original(url, init);
+      if (!issued && url.includes("/purchaseorders/d-race")) {
+        z.pos.get("d-race")!.status = "open";
+        issued = true;
+      }
+      return res;
+    };
+    const id = await freshRun();
+    await run(id);
+    const r = await recs(id);
+    expect((r.SKU003!.inputs as { position: number }).position).toBe(820 + 600); // counted
+    const { data } = await svc.from("draft_po").select("status").eq("zoho_po_id", "d-race").single();
+    expect(data!.status).toBe("created"); // seen pending at read-back → the supplier was held back this week
   });
 });

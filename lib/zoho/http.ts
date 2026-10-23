@@ -2,7 +2,7 @@
 // so tests drive it with an in-memory Zoho and a fake clock.
 //
 // - Auth: "Authorization: Zoho-oauthtoken <access token>". A 401 refreshes once, then fails closed.
-// - Retries: 429 and 5xx with exponential backoff (1 s → 16 s, 5 tries), honouring Retry-After.
+// - Retries: 429 and 5xx with exponential backoff (1 s → 16 s, 5 tries), honouring Retry-After (capped at 60 s).
 // - Rate limit: at most `perMinute` calls in any rolling minute (default 90, under Zoho's 100).
 // - Budget: a hard cap on calls per run (default 300); exceeding it fails closed.
 
@@ -11,6 +11,10 @@ export class ZohoAuthError extends Error {
 }
 export class ZohoBudgetError extends Error {
   override name = "ZohoBudgetError";
+}
+/** Zoho answered, but with something we can't safely interpret (e.g. an unknown PO status). Fails closed. */
+export class ZohoDataError extends Error {
+  override name = "ZohoDataError";
 }
 export class ZohoApiError extends Error {
   override name = "ZohoApiError";
@@ -111,7 +115,7 @@ export class ZohoHttp {
       if (res.status === 429 || res.status >= 500) {
         if (attempt >= this.maxTries) throw new ZohoApiError(`Zoho ${method} failed after ${attempt} tries: HTTP ${res.status} ${messageOf(json, text)}`, res.status);
         const after = Number(res.headers.get("retry-after"));
-        await this.sleep(Number.isFinite(after) && after > 0 ? after * 1000 : 1000 * 2 ** (attempt - 1));
+        await this.sleep(Number.isFinite(after) && after > 0 ? Math.min(after, 60) * 1000 : 1000 * 2 ** (attempt - 1));
         continue;
       }
       const code = typeof json?.code === "number" ? (json.code as number) : 0;

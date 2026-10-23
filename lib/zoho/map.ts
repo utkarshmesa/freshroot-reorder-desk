@@ -2,6 +2,7 @@
 // draft read-back comparison (§8 step 3, D11). Field names follow the Zoho Inventory v1 API; they are
 // assumptions until the week-1 test-org check records real responses (ADR-0002).
 import type { PoLine, Receipt } from "@/lib/engine/types";
+import { ZohoDataError } from "./http";
 
 export type ZohoPoSummary = { purchaseorder_id: string; purchaseorder_number: string; status: string; reference_number?: string; last_modified_time?: string };
 export type ZohoPoLine = { line_item_id?: string; item_id: string; quantity: number; quantity_received?: number };
@@ -12,6 +13,9 @@ export type ZohoVendor = { contact_id: string; contact_name?: string; status?: s
 
 const STATUS: Record<string, PoLine["status"]> = {
   draft: "draft",
+  // Not yet sent to the vendor: never stock, and still "pending" for the one-draft-per-supplier rule.
+  pending_approval: "draft",
+  approved: "draft",
   open: "open",
   issued: "open",
   partially_received: "partially_received",
@@ -28,10 +32,15 @@ export function poStatus(s: string): PoLine["status"] | null {
   return STATUS[s.toLowerCase().replace(/\s+/g, "_")] ?? null;
 }
 
+/** Zoho statuses whose POs can still have quantity on order: every one the PO read must list. */
+export const COUNTED_ZOHO_STATUSES = Object.entries(STATUS)
+  .filter(([, s]) => s === "open" || s === "partially_received" || s === "billed")
+  .map(([z]) => z);
+
 /** PO lines for our SKUs only. `itemToSku` maps Zoho item_id → our SKU id (from sku.zoho_item_id). */
 export function toPoLines(po: ZohoPo, itemToSku: ReadonlyMap<string, string>): PoLine[] {
   const status = poStatus(po.status);
-  if (!status) throw new Error(`Unknown Zoho purchase order status "${po.status}" on ${po.purchaseorder_number}`);
+  if (!status) throw new ZohoDataError(`Unknown Zoho purchase order status "${po.status}" on ${po.purchaseorder_number}`);
   return po.line_items
     .filter((l) => itemToSku.has(l.item_id))
     .map((l) => ({
@@ -58,9 +67,14 @@ export type SkuMapping = { id: string; status: string; uom: string | null; zohoI
 /** SKUs that can't be ordered, with the reason. Active SKUs only; inactive ones order nothing anyway. */
 export function mappingCheck(skus: SkuMapping[], items: ReadonlyMap<string, ZohoItem>, vendors: ReadonlyMap<string, ZohoVendor>): Record<string, string> {
   const blocked: Record<string, string> = {};
+  // One Zoho item per active SKU: otherwise its POs and receipts can't be attributed (review M3, finding 4).
+  const byItem = new Map<string, string[]>();
+  for (const s of skus) if (s.status === "active" && s.zohoItemId) byItem.set(s.zohoItemId, [...(byItem.get(s.zohoItemId) ?? []), s.id]);
   for (const s of skus) {
     if (s.status !== "active") continue;
-    if (!s.zohoItemId) blocked[s.id] = "No Zoho item mapped (Settings › SKUs)";
+    const shared = s.zohoItemId ? byItem.get(s.zohoItemId)! : [];
+    if (shared.length > 1) blocked[s.id] = `Zoho item ${s.zohoItemId} is mapped to more than one active SKU (${shared.join(", ")})`;
+    else if (!s.zohoItemId) blocked[s.id] = "No Zoho item mapped (Settings › SKUs)";
     else if (!items.has(s.zohoItemId)) blocked[s.id] = `Zoho item ${s.zohoItemId} not found`;
     else if ((items.get(s.zohoItemId)!.status ?? "active") !== "active") blocked[s.id] = `Zoho item ${s.zohoItemId} is ${items.get(s.zohoItemId)!.status}`;
     else if (s.uom && items.get(s.zohoItemId)!.unit && s.uom.trim().toLowerCase() !== items.get(s.zohoItemId)!.unit!.trim().toLowerCase())
@@ -84,6 +98,7 @@ export type Readback =
 export function readback(po: ZohoPo | null, requested: RequestedLine[]): Readback {
   if (!po) return { status: "deleted" };
   const st = poStatus(po.status);
+  if (!st) throw new ZohoDataError(`Unknown Zoho status "${po.status}" on system draft ${po.purchaseorder_number}`);
   if (st === "cancelled") return { status: "deleted" };
   const lines = po.line_items.map((l) => ({ item_id: l.item_id, qty: Number(l.quantity) }));
   const key = (xs: Array<{ item_id: string; qty: number }>) =>

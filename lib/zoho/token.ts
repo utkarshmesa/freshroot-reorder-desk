@@ -10,8 +10,9 @@ const MARGIN_MS = 120_000;
 
 /** Exchanges the refresh token for an access token. Throws ZohoAuthError when Zoho refuses. */
 export async function refreshAccessToken(fetch: Fetch, cfg: TokenConfig): Promise<{ token: string; expiresIn: number }> {
-  const q = new URLSearchParams({ refresh_token: cfg.refreshToken, client_id: cfg.clientId, client_secret: cfg.clientSecret, grant_type: "refresh_token" });
-  const res = await fetch(`${cfg.accountsDomain}/oauth/v2/token?${q}`, { method: "POST", headers: {} });
+  // Sent as a form body, not a query string, so the secret and refresh token never sit in a URL that proxies log.
+  const form = new URLSearchParams({ refresh_token: cfg.refreshToken, client_id: cfg.clientId, client_secret: cfg.clientSecret, grant_type: "refresh_token" });
+  const res = await fetch(`${cfg.accountsDomain}/oauth/v2/token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString() });
   let json: Record<string, unknown> = {};
   try {
     json = JSON.parse(await res.text()) as Record<string, unknown>;
