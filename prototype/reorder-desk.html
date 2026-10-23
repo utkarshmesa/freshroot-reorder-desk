@@ -1,0 +1,928 @@
+<title>Freshroots Reorder Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a planner's desk. Sticky week header, tabbed work surfaces, queue of decision cards with a cover gauge per SKU. */
+:root{
+  --bg:#f3f5f2; --surface:#ffffff; --sunk:#e8ece6; --line:#d3d9d0;
+  --ink:#16222b; --ink-2:#4a5862; --ink-3:#7b8890;
+  --accent:#c9741a; --accent-ink:#ffffff; --accent-soft:#f6e3cc;
+  --reorder:#1f6fb2; --reorder-soft:#dbe9f6;
+  --pause:#a35b00; --pause-soft:#f8e6c9;
+  --review:#7446a8; --review-soft:#eadff6;
+  --ok:#3d7a4f; --ok-soft:#dcefe1;
+  --bad:#b23a3a; --bad-soft:#f6dcdc;
+  --band:#cfe3d4;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --r:8px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#11171b; --surface:#192127; --sunk:#0d1215; --line:#2b363d;
+  --ink:#e6ecee; --ink-2:#a9b5bb; --ink-3:#7c898f;
+  --accent:#e8953f; --accent-ink:#1a1206; --accent-soft:#3a2a17;
+  --reorder:#6aaee8; --reorder-soft:#1b2f40;
+  --pause:#e6a54c; --pause-soft:#3a2b14;
+  --review:#b994e6; --review-soft:#2e2340;
+  --ok:#7cc493; --ok-soft:#1b3324;
+  --bad:#ec8585; --bad-soft:#3d1f1f;
+  --band:#24402e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11171b; --surface:#192127; --sunk:#0d1215; --line:#2b363d;
+  --ink:#e6ecee; --ink-2:#a9b5bb; --ink-3:#7c898f;
+  --accent:#e8953f; --accent-ink:#1a1206; --accent-soft:#3a2a17;
+  --reorder:#6aaee8; --reorder-soft:#1b2f40;
+  --pause:#e6a54c; --pause-soft:#3a2b14;
+  --review:#b994e6; --review-soft:#2e2340;
+  --ok:#7cc493; --ok-soft:#1b3324;
+  --bad:#ec8585; --bad-soft:#3d1f1f;
+  --band:#24402e; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;margin:0}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;padding-block:12px}
+.brand{display:flex;flex-direction:column;min-width:0}
+.brand h1{font-family:var(--f-display);font-weight:700;font-size:1.25rem;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.brand span{color:var(--ink-3);font-size:.8rem}
+.weekchip{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:auto}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--sunk);color:var(--ink-2);white-space:nowrap}
+.pill.fest{background:var(--accent-soft);color:var(--accent)}
+.pill.warn{background:var(--bad-soft);color:var(--bad)}
+.pill.okp{background:var(--ok-soft);color:var(--ok)}
+nav.tabs{display:flex;gap:2px;overflow-x:auto}
+nav.tabs .wrap{display:flex;gap:4px;padding-block:0}
+nav.tabs button{font:600 .88rem var(--f-body);color:var(--ink-2);background:none;border:0;border-bottom:2px solid transparent;padding:10px 12px;cursor:pointer;white-space:nowrap}
+nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+nav.tabs button:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+main .wrap{padding-block:20px 60px;display:flex;flex-direction:column;gap:20px}
+h2{font-family:var(--f-display);font-weight:600;font-size:1.15rem;margin:0;text-wrap:balance}
+h3{font-size:.95rem;margin:0}
+.muted{color:var(--ink-3)}
+.small{font-size:.82rem}
+.mono,.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat b{font-family:var(--f-display);font-size:1.6rem;line-height:1.1}
+.stat span{font-size:.8rem;color:var(--ink-2)}
+.stat.reorder b{color:var(--reorder)} .stat.pause b{color:var(--pause)} .stat.review b{color:var(--review)}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.btn{font:600 .86rem var(--f-body);border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:7px 12px;cursor:pointer;min-height:36px}
+.btn:hover{border-color:var(--ink-3)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.good{background:var(--ok);border-color:var(--ok);color:var(--surface)}
+.btn.ghost{background:transparent}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.queue{display:flex;flex-direction:column;gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:grid;grid-template-columns:6px 1fr;overflow:hidden}
+.card .stripe{background:var(--ink-3)}
+.card.reorder .stripe{background:var(--reorder)} .card.pause .stripe{background:var(--pause)} .card.review .stripe{background:var(--review)} .card.none .stripe{background:var(--line)}
+.card .body{padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card.decided{opacity:.72}
+.rowtop{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}
+.sku{font-family:var(--f-mono);font-size:.8rem;color:var(--ink-3)}
+.name{font-weight:600}
+.act{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:4px}
+.act.reorder{background:var(--reorder-soft);color:var(--reorder)} .act.pause{background:var(--pause-soft);color:var(--pause)} .act.review{background:var(--review-soft);color:var(--review)} .act.none{background:var(--sunk);color:var(--ink-2)}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:.72rem;padding:1px 7px;border-radius:4px;border:1px solid var(--line);color:var(--ink-2)}
+.why{margin:0;color:var(--ink-2);font-size:.9rem;max-width:72ch}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px 14px;font-size:.82rem}
+.facts div{display:flex;flex-direction:column} .facts dt{color:var(--ink-3)} .facts dd{margin:0;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.gauge{position:relative;height:30px;margin-top:2px}
+.gauge svg{width:100%;height:30px;display:block}
+.decide{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-top:1px dashed var(--line);padding-top:10px}
+.decide input[type=number]{width:96px}
+input,select,textarea{font:inherit;font-size:.86rem;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-height:36px}
+textarea{width:100%;min-height:60px}
+.rejectbox{display:flex;flex-wrap:wrap;gap:8px;width:100%}
+.rejectbox select{flex:1 1 220px} .rejectbox input{flex:2 1 240px}
+.verdict{font-size:.84rem;font-weight:600}
+.verdict.approved{color:var(--ok)} .verdict.modified{color:var(--reorder)} .verdict.rejected{color:var(--bad)}
+details.fold{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+details.fold summary{cursor:pointer;padding:12px 16px;font-weight:600}
+details.fold > div{padding:0 16px 14px}
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+table{border-collapse:collapse;width:100%;font-size:.84rem}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);font-weight:600;background:var(--sunk)}
+td.num,th.num{text-align:right}
+tr:last-child td{border-bottom:0}
+.checks{display:flex;flex-direction:column;gap:8px}
+.check{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px}
+.check .dot{width:10px;height:10px;border-radius:50%;margin-top:6px}
+.dot.pass{background:var(--ok)} .dot.warn{background:var(--pause)} .dot.fail{background:var(--bad)} .dot.info{background:var(--reorder)}
+.check p{margin:0;font-size:.88rem;color:var(--ink-2)}
+.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.field{display:flex;flex-direction:column;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.field label{font-weight:600;font-size:.86rem}
+.field small{color:var(--ink-3)}
+.banner{border-radius:var(--r);padding:10px 14px;font-size:.88rem;border:1px solid var(--line);background:var(--surface)}
+.banner.warn{background:var(--bad-soft);border-color:transparent;color:var(--bad)}
+.banner.info{background:var(--accent-soft);border-color:transparent}
+.banner.ok{background:var(--ok-soft);border-color:transparent;color:var(--ok)}
+.uploads{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.uploads label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;font-weight:600}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:6px;font-size:.86rem;z-index:20}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:.78rem;color:var(--ink-2)}
+.legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:4px;vertical-align:middle}
+@media (prefers-reduced-motion: no-preference){.card{transition:opacity .2s}}
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand"><h1>Freshroots Reorder Desk</h1><span>Weekly replenishment review · Raghav's rules, automated</span></div>
+    <div class="weekchip" id="weekchip"></div>
+  </div>
+  <nav class="tabs" aria-label="Sections"><div class="wrap" role="tablist">
+    <button role="tab" data-tab="queue" aria-selected="true">Review queue</button>
+    <button role="tab" data-tab="all" aria-selected="false">All SKUs</button>
+    <button role="tab" data-tab="checks" aria-selected="false">Data checks</button>
+    <button role="tab" data-tab="log" aria-selected="false">Decision log</button>
+    <button role="tab" data-tab="settings" aria-selected="false">Rules &amp; data</button>
+  </div></nav>
+</header>
+
+<main><div class="wrap">
+  <div id="saveBanner" class="banner info" hidden></div>
+
+  <section id="tab-queue" data-panel="queue">
+    <div class="summary" id="summary"></div>
+    <div style="height:14px"></div>
+    <div class="bar">
+      <div><h2>Needs your decision</h2><div class="muted small" id="queueHint"></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="btnBulk">Approve all "no action" SKUs</button>
+        <button class="btn primary" id="btnClose">Close week &amp; export</button>
+      </div>
+    </div>
+    <div style="height:10px"></div>
+    <div class="legend" aria-hidden="true">
+      <span><i style="background:var(--band)"></i>Target cover band</span>
+      <span><i style="background:var(--ink)"></i>Cover now</span>
+      <span><i style="background:var(--reorder)"></i>Cover after order</span>
+    </div>
+    <div style="height:10px"></div>
+    <div class="queue" id="queue"></div>
+    <div style="height:16px"></div>
+    <div id="closeOut"></div>
+  </section>
+
+  <section data-panel="all" hidden>
+    <div class="bar"><div><h2>All SKUs this week</h2><div class="muted small">Every number the rules used. Weeks of cover = inventory position ÷ forward weekly demand.</div></div></div>
+    <div style="height:10px"></div>
+    <div class="tablewrap"><table id="allTable"></table></div>
+  </section>
+
+  <section data-panel="checks" hidden>
+    <h2>Data checks</h2>
+    <p class="muted small" style="margin:4px 0 12px">Run on every load. A failed check blocks the week: no recommendations go to procurement on bad data.</p>
+    <div class="checks" id="checks"></div>
+  </section>
+
+  <section data-panel="log" hidden>
+    <h2>Decision log</h2>
+    <p class="muted small" style="margin:4px 0 12px">Every approval, change and rejection, with reasons. This is how Raghav's judgement gets written down, and how the kill criterion is measured.</p>
+    <div class="summary" id="logStats"></div>
+    <div style="height:12px"></div>
+    <div class="tablewrap"><table id="logTable"></table></div>
+  </section>
+
+  <section data-panel="settings" hidden>
+    <h2>Rules</h2>
+    <p class="muted small" style="margin:4px 0 12px">Raghav's documented rules as editable settings. Changes apply to everyone and are logged.</p>
+    <div class="settings" id="settingsForm"></div>
+    <div style="height:10px"></div>
+    <div class="bar"><span class="muted small" id="settingsMeta"></span><div style="display:flex;gap:8px"><button class="btn" id="btnResetSettings">Restore Raghav's defaults</button><button class="btn primary" id="btnSaveSettings">Save rules</button></div></div>
+    <div style="height:24px"></div>
+    <h2>This week's data</h2>
+    <p class="muted small" style="margin:4px 0 12px">Load next week's SAP and Zoho exports here. Same column names as the current files. Inventory may add an <span class="mono">Open_PO_Units</span> and an <span class="mono">In_Transit_Units</span> column; supplier lead times can come later.</p>
+    <div class="uploads">
+      <label for="upSales">Weekly sales (SKU_ID, Week, Units_Sold)<input type="file" id="upSales" accept=".csv"></label>
+      <label for="upSku">SKU master<input type="file" id="upSku" accept=".csv"></label>
+      <label for="upInv">Current inventory<input type="file" id="upInv" accept=".csv"></label>
+      <label for="upCal">Festival calendar<input type="file" id="upCal" accept=".csv"></label>
+    </div>
+    <div style="height:10px"></div>
+    <div class="bar"><span class="muted small" id="dataMeta"></span><div style="display:flex;gap:8px"><button class="btn" id="btnSampleData">Use the case data</button><button class="btn primary" id="btnLoadData">Load files</button></div></div>
+  </section>
+</div></main>
+<div class="toast" id="toast" hidden></div>
+
+<script type="text/csv" id="csv-sales">SKU_ID,Week,Units_Sold
+SKU001,2026-W27,194
+SKU001,2026-W28,188
+SKU001,2026-W29,204
+SKU001,2026-W30,186
+SKU001,2026-W31,201
+SKU001,2026-W32,195
+SKU001,2026-W33,185
+SKU001,2026-W34,200
+SKU001,2026-W35,185
+SKU001,2026-W36,197
+SKU001,2026-W37,186
+SKU001,2026-W38,186
+SKU001,2026-W39,261
+SKU001,2026-W40,267
+SKU001,2026-W41,257
+SKU001,2026-W42,259
+SKU002,2026-W27,86
+SKU002,2026-W28,91
+SKU002,2026-W29,86
+SKU002,2026-W30,83
+SKU002,2026-W31,91
+SKU002,2026-W32,78
+SKU002,2026-W33,89
+SKU002,2026-W34,82
+SKU002,2026-W35,80
+SKU002,2026-W36,79
+SKU002,2026-W37,82
+SKU002,2026-W38,89
+SKU002,2026-W39,80
+SKU002,2026-W40,86
+SKU002,2026-W41,86
+SKU002,2026-W42,83
+SKU003,2026-W27,151
+SKU003,2026-W28,139
+SKU003,2026-W29,139
+SKU003,2026-W30,142
+SKU003,2026-W31,154
+SKU003,2026-W32,148
+SKU003,2026-W33,145
+SKU003,2026-W34,152
+SKU003,2026-W35,148
+SKU003,2026-W36,145
+SKU003,2026-W37,157
+SKU003,2026-W38,154
+SKU003,2026-W39,143
+SKU003,2026-W40,151
+SKU003,2026-W41,150
+SKU003,2026-W42,159
+SKU004,2026-W27,82
+SKU004,2026-W28,77
+SKU004,2026-W29,86
+SKU004,2026-W30,75
+SKU004,2026-W31,78
+SKU004,2026-W32,83
+SKU004,2026-W33,75
+SKU004,2026-W34,79
+SKU004,2026-W35,74
+SKU004,2026-W36,82
+SKU004,2026-W37,83
+SKU004,2026-W38,80
+SKU004,2026-W39,84
+SKU004,2026-W40,77
+SKU004,2026-W41,82
+SKU004,2026-W42,81
+SKU005,2026-W27,60
+SKU005,2026-W28,59
+SKU005,2026-W29,63
+SKU005,2026-W30,64
+SKU005,2026-W31,59
+SKU005,2026-W32,61
+SKU005,2026-W33,55
+SKU005,2026-W34,61
+SKU005,2026-W35,61
+SKU005,2026-W36,64
+SKU005,2026-W37,63
+SKU005,2026-W38,57
+SKU005,2026-W39,58
+SKU005,2026-W40,61
+SKU005,2026-W41,55
+SKU005,2026-W42,59
+SKU006,2026-W27,37
+SKU006,2026-W28,37
+SKU006,2026-W29,37
+SKU006,2026-W30,41
+SKU006,2026-W31,37
+SKU006,2026-W32,38
+SKU006,2026-W33,39
+SKU006,2026-W34,42
+SKU006,2026-W35,37
+SKU006,2026-W36,39
+SKU006,2026-W37,40
+SKU006,2026-W38,42
+SKU006,2026-W39,42
+SKU006,2026-W40,42
+SKU006,2026-W41,38
+SKU006,2026-W42,39
+SKU007,2026-W27,117
+SKU007,2026-W28,127
+SKU007,2026-W29,128
+SKU007,2026-W30,113
+SKU007,2026-W31,113
+SKU007,2026-W32,114
+SKU007,2026-W33,114
+SKU007,2026-W34,119
+SKU007,2026-W35,121
+SKU007,2026-W36,115
+SKU007,2026-W37,110
+SKU007,2026-W38,118
+SKU007,2026-W39,131
+SKU007,2026-W40,133
+SKU007,2026-W41,136
+SKU007,2026-W42,134
+SKU008,2026-W27,110
+SKU008,2026-W28,112
+SKU008,2026-W29,113
+SKU008,2026-W30,102
+SKU008,2026-W31,117
+SKU008,2026-W32,114
+SKU008,2026-W33,116
+SKU008,2026-W34,115
+SKU008,2026-W35,108
+SKU008,2026-W36,108
+SKU008,2026-W37,103
+SKU008,2026-W38,112
+SKU008,2026-W39,102
+SKU008,2026-W40,102
+SKU008,2026-W41,104
+SKU008,2026-W42,104
+SKU009,2026-W27,34
+SKU009,2026-W28,32
+SKU009,2026-W29,32
+SKU009,2026-W30,33
+SKU009,2026-W31,32
+SKU009,2026-W32,34
+SKU009,2026-W33,32
+SKU009,2026-W34,37
+SKU009,2026-W35,35
+SKU009,2026-W36,33
+SKU009,2026-W37,33
+SKU009,2026-W38,34
+SKU009,2026-W39,34
+SKU009,2026-W40,32
+SKU009,2026-W41,36
+SKU009,2026-W42,37
+SKU010,2026-W27,24
+SKU010,2026-W28,24
+SKU010,2026-W29,23
+SKU010,2026-W30,23
+SKU010,2026-W31,24
+SKU010,2026-W32,24
+SKU010,2026-W33,26
+SKU010,2026-W34,23
+SKU010,2026-W35,23
+SKU010,2026-W36,26
+SKU010,2026-W37,25
+SKU010,2026-W38,23
+SKU010,2026-W39,25
+SKU010,2026-W40,23
+SKU010,2026-W41,25
+SKU010,2026-W42,26
+SKU011,2026-W27,211
+SKU011,2026-W28,206
+SKU011,2026-W29,192
+SKU011,2026-W30,195
+SKU011,2026-W31,189
+SKU011,2026-W32,208
+SKU011,2026-W33,201
+SKU011,2026-W34,208
+SKU011,2026-W35,194
+SKU011,2026-W36,191
+SKU011,2026-W37,209
+SKU011,2026-W38,215
+SKU011,2026-W39,211
+SKU011,2026-W40,209
+SKU011,2026-W41,210
+SKU011,2026-W42,207
+SKU012,2026-W27,52
+SKU012,2026-W28,55
+SKU012,2026-W29,53
+SKU012,2026-W30,50
+SKU012,2026-W31,50
+SKU012,2026-W32,53
+SKU012,2026-W33,52
+SKU012,2026-W34,56
+SKU012,2026-W35,59
+SKU012,2026-W36,54
+SKU012,2026-W37,58
+SKU012,2026-W38,59
+SKU012,2026-W39,62
+SKU012,2026-W40,60
+SKU012,2026-W41,59
+SKU012,2026-W42,59
+SKU013,2026-W27,42
+SKU013,2026-W28,42
+SKU013,2026-W29,45
+SKU013,2026-W30,47
+SKU013,2026-W31,47
+SKU013,2026-W32,44
+SKU013,2026-W33,46
+SKU013,2026-W34,47
+SKU013,2026-W35,42
+SKU013,2026-W36,46
+SKU013,2026-W37,47
+SKU013,2026-W38,47
+SKU013,2026-W39,46
+SKU013,2026-W40,44
+SKU013,2026-W41,42
+SKU013,2026-W42,47
+SKU014,2026-W27,68
+SKU014,2026-W28,73
+SKU014,2026-W29,75
+SKU014,2026-W30,68
+SKU014,2026-W31,68
+SKU014,2026-W32,75
+SKU014,2026-W33,72
+SKU014,2026-W34,66
+SKU014,2026-W35,65
+SKU014,2026-W36,66
+SKU014,2026-W37,74
+SKU014,2026-W38,73
+SKU014,2026-W39,75
+SKU014,2026-W40,78
+SKU014,2026-W41,79
+SKU014,2026-W42,78
+SKU015,2026-W27,29
+SKU015,2026-W28,30
+SKU015,2026-W29,28
+SKU015,2026-W30,27
+SKU015,2026-W31,32
+SKU015,2026-W32,30
+SKU015,2026-W33,30
+SKU015,2026-W34,32
+SKU015,2026-W35,29
+SKU015,2026-W36,31
+SKU015,2026-W37,31
+SKU015,2026-W38,28
+SKU015,2026-W39,28
+SKU015,2026-W40,29
+SKU015,2026-W41,28
+SKU015,2026-W42,30</script>
+<script type="text/csv" id="csv-sku">SKU_ID,SKU_Name,Category,Perishability,Standard_Reorder_Qty,Unit_of_Measure,Distributor_ID
+SKU001,Freshroots Mango Drink 200ml,Beverage,Low,500,Units,DIST001
+SKU002,Freshroots Oats Cookies 150g,Snack,Low,200,Units,DIST001
+SKU003,Freshroots Brown Rice 1kg,Staple,Low,300,Units,DIST002
+SKU004,Freshroots Almond Milk 500ml,Dairy Alt,High,150,Units,DIST002
+SKU005,Freshroots Mixed Nuts 100g,Snack,Low,150,Units,DIST003
+SKU006,Freshroots Quinoa 500g,Staple,Low,100,Units,DIST003
+SKU007,Freshroots Coconut Water 330ml,Beverage,High,400,Units,DIST001
+SKU008,Freshroots Granola Bar 40g,Snack,Low,300,Units,DIST002
+SKU009,Freshroots Chia Seeds 200g,Staple,Low,80,Units,DIST003
+SKU010,Freshroots Apple Cider Vinegar 500ml,Condiment,Low,60,Units,DIST004
+SKU011,Freshroots Multigrain Bread 400g,Staple,High,500,Units,DIST004
+SKU012,Freshroots Herbal Tea 25 bags,Beverage,Low,150,Units,DIST004
+SKU013,Freshroots Peanut Butter 300g,Condiment,Low,120,Units,DIST001
+SKU014,Freshroots Dark Chocolate 80g,Snack,Low,200,Units,DIST002
+SKU015,Freshroots Honey 500g,Condiment,Low,80,Units,DIST003</script>
+<script type="text/csv" id="csv-inv">SKU_ID,Location,Units_On_Hand,As_Of_Date
+SKU001,Pune Central Warehouse,900,2026-10-19
+SKU002,Pune Central Warehouse,1200,2026-10-19
+SKU003,Pune Central Warehouse,820,2026-10-19
+SKU004,Pune Central Warehouse,180,2026-10-19
+SKU005,Pune Central Warehouse,600,2026-10-19
+SKU006,Pune Central Warehouse,1100,2026-10-19
+SKU007,Pune Central Warehouse,620,2026-10-19
+SKU008,Pune Central Warehouse,950,2026-10-19
+SKU009,Pune Central Warehouse,400,2026-10-19
+SKU010,Pune Central Warehouse,260,2026-10-19
+SKU011,Pune Central Warehouse,460,2026-10-19
+SKU012,Pune Central Warehouse,480,2026-10-19
+SKU013,Pune Central Warehouse,180,2026-10-19
+SKU014,Pune Central Warehouse,620,2026-10-19
+SKU015,Pune Central Warehouse,360,2026-10-19</script>
+<script type="text/csv" id="csv-cal">Year,Month,Year_Month,Is_Festival_Month
+2025,1,2025-01,FALSE
+2025,2,2025-02,FALSE
+2025,3,2025-03,TRUE
+2025,4,2025-04,FALSE
+2025,5,2025-05,FALSE
+2025,6,2025-06,FALSE
+2025,7,2025-07,FALSE
+2025,8,2025-08,FALSE
+2025,9,2025-09,FALSE
+2025,10,2025-10,TRUE
+2025,11,2025-11,TRUE
+2025,12,2025-12,FALSE
+2026,1,2026-01,FALSE
+2026,2,2026-02,FALSE
+2026,3,2026-03,TRUE
+2026,4,2026-04,FALSE
+2026,5,2026-05,FALSE
+2026,6,2026-06,FALSE
+2026,7,2026-07,FALSE
+2026,8,2026-08,FALSE
+2026,9,2026-09,FALSE
+2026,10,2026-10,TRUE
+2026,11,2026-11,TRUE
+2026,12,2026-12,FALSE</script>
+
+<script>
+(function(){
+"use strict";
+/* ---------- constants ---------- */
+const DEFAULTS = {trendPct:20, hdMult:1.5, minWeeks:6, maxWeeks:14, perMin:3, perMax:4, festPct:25, borderPct:5, holdout:[], seeds:true};
+const REASONS = ["Known market event (scheme, competitor, festival timing)","Data looks wrong","Supplier constraint (MOQ, capacity, lead time)","New launch / unusual SKU","Disagree with the rule for this SKU","Other"];
+let settings = {...DEFAULTS};
+let settingsMeta = null;
+let data = null;           // parsed inputs
+let dataSource = "case";   // "case" | "uploaded"
+let result = null;         // engine output
+let decisions = {};        // id -> doc
+let runsClosed = {};       // runId -> doc
+let db = null, user = null, downloads = null, me = null;
+let canWrite = true;
+let activeTab = "queue";
+
+/* ---------- helpers ---------- */
+const $ = (s,el=document)=>el.querySelector(s);
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (n,d=1)=> (n==null||!isFinite(n)) ? "–" : Number(n).toLocaleString("en-IN",{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmt0 = n => fmt(n,0);
+function toast(msg){const t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,2600);}
+function parseCSV(text){
+  const rows=[];let row=[],f="",q=false;
+  text=String(text).replace(/^﻿/,"").trim()+"\n";
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){f+='"';i++;} else q=false;} else f+=c; }
+    else if(c==='"') q=true; else if(c===','){row.push(f);f="";}
+    else if(c==='\n'||c==='\r'){ if(c==='\r'&&text[i+1]==='\n') i++; row.push(f);f=""; if(row.some(x=>x.trim()!=="")) rows.push(row); row=[]; }
+    else f+=c; }
+  const head=rows.shift().map(h=>h.trim());
+  return rows.map(r=>Object.fromEntries(head.map((h,i)=>[h,(r[i]||"").trim()])));
+}
+function isoMonday(y,w){const j=new Date(Date.UTC(y,0,4));const d=(j.getUTCDay()+6)%7;const m=new Date(j);m.setUTCDate(j.getUTCDate()-d+(w-1)*7);return m;}
+function isoOf(date){const t=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate()));const day=(t.getUTCDay()+6)%7;t.setUTCDate(t.getUTCDate()-day+3);const y=t.getUTCFullYear();const j=new Date(Date.UTC(y,0,4));const w=1+Math.round(((t-j)/864e5-3+((j.getUTCDay()+6)%7))/7);return {y,w,thu:t};}
+const parseWeek = s => {const m=/^(\d{4})-W(\d{1,2})$/.exec(s);return m?{y:+m[1],w:+m[2]}:null;};
+const weekKey = (y,w)=> `${y}-W${String(w).padStart(2,"0")}`;
+const dstr = d => d.toISOString().slice(0,10);
+const hash = s => {let h=2166136261;for(const c of s){h^=c.charCodeAt(0);h=Math.imul(h,16777619);}return h>>>0;};
+
+/* ---------- data ---------- */
+function caseData(){return {sales:parseCSV($("#csv-sales").textContent),sku:parseCSV($("#csv-sku").textContent),inv:parseCSV($("#csv-inv").textContent),cal:parseCSV($("#csv-cal").textContent)};}
+
+/* ---------- engine ---------- */
+function runEngine(d,s){
+  const checks=[]; const add=(lvl,title,text)=>checks.push({lvl,title,text});
+  const need={sales:["SKU_ID","Week","Units_Sold"],sku:["SKU_ID","SKU_Name","Perishability","Standard_Reorder_Qty"],inv:["SKU_ID","Units_On_Hand"],cal:["Year_Month","Is_Festival_Month"]};
+  let blocked=false;
+  for(const k in need){const cols=d[k].length?Object.keys(d[k][0]):[];const miss=need[k].filter(c=>!cols.includes(c));
+    if(!d[k].length||miss.length){blocked=true;add("fail",`${{sales:"Weekly sales",sku:"SKU master",inv:"Inventory",cal:"Calendar"}[k]} file`,d[k].length?`Missing column(s): ${miss.join(", ")}.`:"File is empty.");}}
+  if(blocked) return {blocked:true,checks,rows:[]};
+
+  // weeks
+  const weeks=[...new Set(d.sales.map(r=>r.Week))].filter(parseWeek).sort((a,b)=>{const A=parseWeek(a),B=parseWeek(b);return A.y-B.y||A.w-B.w;});
+  const badWeeks=d.sales.filter(r=>!parseWeek(r.Week)).length;
+  if(badWeeks) add("warn","Week format",`${badWeeks} sales rows have a week that isn't in YYYY-Www format and were ignored.`);
+  let gaps=0;for(let i=1;i<weeks.length;i++){const a=parseWeek(weeks[i-1]),b=parseWeek(weeks[i]);const n=isoOf(new Date(isoMonday(a.y,a.w).getTime()+7*864e5));if(n.y!==b.y||n.w!==b.w)gaps++;}
+  if(gaps) add("warn","Missing weeks",`${gaps} gap(s) in the weekly series. Averages use the weeks present.`);
+  else add("pass","Weekly series is continuous",`${weeks.length} weeks, ${weeks[0]} to ${weeks[weeks.length-1]}.`);
+  if(weeks.length<12) add("warn","Short history",`Only ${weeks.length} weeks of sales. The 12-week average needs 12.`);
+  else add("info","History length",`${weeks.length} weeks available. Enough for the 12-week rules, but not for a multi-year backtest or same-quarter-last-year comparison.`);
+
+  const last=parseWeek(weeks[weeks.length-1]);
+  const runMon=new Date(isoMonday(last.y,last.w).getTime()+7*864e5);
+  const runIso=isoOf(runMon); const runId=weekKey(runIso.y,runIso.w);
+  const ym=`${runIso.thu.getUTCFullYear()}-${String(runIso.thu.getUTCMonth()+1).padStart(2,"0")}`;
+  const calRow=d.cal.find(r=>r.Year_Month===ym);
+  const festival = calRow ? /^true$/i.test(calRow.Is_Festival_Month) : false;
+  if(!calRow) add("warn","Festival calendar",`${ym} isn't in the calendar file. Treated as a normal month.`);
+  else add("pass","Festival calendar",`Run week ${runId} falls in ${ym}: ${festival?"festival month, +"+s.festPct+"% applied to forward demand":"normal month"}.`);
+
+  // inventory date
+  const asOf=[...new Set(d.inv.map(r=>r.As_Of_Date).filter(Boolean))];
+  if(asOf.length===1){const ad=new Date(asOf[0]+"T00:00:00Z");const diff=Math.round((ad-runMon)/864e5);
+    if(diff<0||diff>6) add("warn","Inventory date",`Inventory is as of ${asOf[0]}, outside run week ${runId} (starts ${dstr(runMon)}). Stock may be stale.`);
+    else add("pass","Inventory date",`Inventory as of ${asOf[0]}, the start of run week ${runId}. Lines up with the last sales week.`);}
+  else if(asOf.length>1) add("warn","Inventory date",`Inventory rows carry ${asOf.length} different dates.`);
+
+  // keys
+  const skuIds=new Set(d.sku.map(r=>r.SKU_ID)), salesIds=new Set(d.sales.map(r=>r.SKU_ID)), invIds=new Set(d.inv.map(r=>r.SKU_ID));
+  const noSales=[...skuIds].filter(x=>!salesIds.has(x)), noInv=[...skuIds].filter(x=>!invIds.has(x)), orphan=[...salesIds].filter(x=>!skuIds.has(x));
+  if(!noSales.length&&!noInv.length&&!orphan.length) add("pass","SKU IDs match across files",`${skuIds.size} SKUs in master, sales and inventory.`);
+  else add("warn","SKU IDs don't match",[noSales.length?`No sales: ${noSales.join(", ")}.`:"",noInv.length?`No inventory: ${noInv.join(", ")}.`:"",orphan.length?`Sales for SKUs not in master: ${orphan.join(", ")}.`:""].join(" "));
+  const neg=d.sales.filter(r=>!(+r.Units_Sold>=0)).length+d.inv.filter(r=>!(+r.Units_On_Hand>=0)).length;
+  if(neg) add("fail","Negative or non-numeric quantities",`${neg} rows. Fix in SAP export before running.`); else add("pass","Quantities are valid","No negative or non-numeric units.");
+
+  const invCols=d.inv.length?Object.keys(d.inv[0]):[];
+  const hasPO=invCols.includes("Open_PO_Units"), hasTransit=invCols.includes("In_Transit_Units");
+  if(!hasPO) add("warn","Open purchase orders not in data","Inventory position uses stock on hand only. A reorder placed last week that hasn't arrived will be recommended again. Add Open_PO_Units from Zoho.");
+  add("warn","Supplier lead times not in data","The rules assume an order lands before stock runs out. Perishables below 2 weeks of cover are at risk whatever is approved today.");
+  add("info","No ₹ values in data","Without unit cost or price, the queue is ranked by weeks outside the target band and units at risk, not ₹ at risk.");
+  const dm = data.dist||[]; const out=dm.filter(r=>r.Region&&!/maharashtra|goa/i.test(r.Region));
+  if(out.length) add("info","Distributors outside Maharashtra and Goa",`${out.map(r=>`${r.Distributor_ID} (${r.Region})`).join(", ")}. The brief says Freshroots sells in Maharashtra and Goa; confirm these are suppliers, not sales territory.`);
+  add("info","Distributor_ID in SKU master","Each SKU maps to one Distributor_ID. Treated as the supplier on the procurement export.");
+
+  // rows
+  const byS={}; d.sales.forEach(r=>{if(!parseWeek(r.Week))return;(byS[r.SKU_ID]=byS[r.SKU_ID]||{})[r.Week]=+r.Units_Sold;});
+  const inv={}; d.inv.forEach(r=>inv[r.SKU_ID]=r);
+  const fest = festival ? 1+s.festPct/100 : 1;
+  const rows=d.sku.map(m=>{
+    const series=weeks.map(w=>byS[m.SKU_ID]?.[w]).filter(v=>v!=null&&isFinite(v));
+    const l12=series.slice(-12), l4=series.slice(-4);
+    const a12=l12.length?l12.reduce((a,b)=>a+b,0)/l12.length:null;
+    const a4=l4.length?l4.reduce((a,b)=>a+b,0)/l4.length:null;
+    const perish=/high/i.test(m.Perishability);
+    const min=perish?s.perMin:s.minWeeks, max=perish?s.perMax:s.maxWeeks;
+    const std=+m.Standard_Reorder_Qty||0;
+    const iv=inv[m.SKU_ID]; const onHand=iv?+iv.Units_On_Hand:null;
+    const openPO=hasPO&&iv?(+iv.Open_PO_Units||0):0, transit=hasTransit&&iv?(+iv.In_Transit_Units||0):0;
+    const position=onHand==null?null:onHand+openPO+transit;
+    const fwd=a12!=null?a12*fest:null;
+    const cover=(position!=null&&fwd)?position/fwd:null;
+    const ratio=(a4&&a12)?a4/a12:null;
+    const hd=ratio!=null&&ratio>1+s.trendPct/100;
+    const zeroWeeks=l12.filter(v=>v===0).length;
+    const tags=[]; const reasons=[];
+    let action="none", qty=0, after=null, why="";
+    const holdout=(s.holdout||[]).includes(m.SKU_ID);
+    if(holdout){action="holdout";why="In the control group. Raghav plans this SKU by hand so the system can be compared against the manual process.";}
+    else if(l12.length<12||onHand==null||!std||zeroWeeks){
+      action="review";
+      if(l12.length<12) reasons.push(`only ${l12.length} weeks of sales`);
+      if(onHand==null) reasons.push("no inventory record");
+      if(!std) reasons.push("no standard reorder quantity");
+      if(zeroWeeks) reasons.push(`${zeroWeeks} zero-sale week(s), possibly stocked out, so the average is understated`);
+      why=`Needs your judgement: ${reasons.join("; ")}. The rules can't be applied safely.`;
+    } else if(cover>max){
+      action="pause"; after=cover;
+      why=`${fmt(cover)} weeks of cover is above the ${max}-week maximum${perish?" for high-perishability SKUs":""}. Pause the next order.`;
+      if(hd){tags.push("Conflict: also high-demand");why+=` Sales are also up ${fmt0((ratio-1)*100)}% on the 12-week average, so check whether the extra stock is already being sold through.`;}
+    } else if(cover<min || hd){
+      action="reorder";
+      qty=std*(hd?s.hdMult:1);
+      const minUnits=min*fwd; let steps=0;
+      while((position+qty)<minUnits && steps<20){qty+=std;steps++;}
+      if(steps) tags.push(`Raised to ${fmt0(qty)} to reach ${min} weeks`);
+      if(perish){const cap=Math.floor(max*fwd-position); if(qty>cap){qty=Math.max(0,cap);tags.push(`Capped at ${max}-week perishable maximum`);}}
+      qty=Math.round(qty); after=(position+qty)/fwd;
+      const parts=[];
+      if(cover<min) parts.push(`${fmt(cover)} weeks of cover is below the ${min}-week minimum${perish?" for high-perishability SKUs":""}`);
+      if(hd) parts.push(`last-4-week sales are ${fmt0((ratio-1)*100)}% above the 12-week average (high-demand, ${s.hdMult}× standard quantity)`);
+      why=`${parts.join("; and ")[0].toUpperCase()+parts.join("; and ").slice(1)}. Order ${fmt0(qty)} units to reach ${fmt(after)} weeks.`;
+      if(qty===0){action="review";why=`Stock is short but the perishable maximum leaves no room to order. Check shelf life and lead time.`;}
+      if(perish&&cover<2) tags.push("Under 2 weeks: lead time risk");
+    } else {
+      why=`${fmt(cover)} weeks of cover sits inside the ${min}–${max} week band and sales are steady. No order needed.`;
+    }
+    if(hd&&action!=="pause") tags.push(`High-demand +${fmt0((ratio-1)*100)}%`);
+    if(perish) tags.push("High perishability");
+    if(cover!=null&&action!=="review"&&action!=="holdout"){const edge=[min,max].find(t=>Math.abs(cover-t)/t<=s.borderPct/100); if(edge!=null) tags.push(`Borderline: within ${s.borderPct}% of ${edge} weeks`);}
+    if(festival&&action!=="holdout") tags.push(`Festival +${s.festPct}% in forward demand`);
+    const outside = cover==null?0:(cover<min?(min-cover)/min:cover>max?(cover-max)/max:0);
+    const unitsRisk = fwd&&cover!=null ? Math.round(outside*fwd) : 0;
+    return {id:m.SKU_ID,name:m.SKU_Name,cat:m.Category,perish,min,max,std,onHand,openPO,transit,position,a4,a12,ratio,hd,fwd,cover,after,action,qty,why,tags,outside,unitsRisk,supplier:m.Distributor_ID||"",uom:m.Unit_of_Measure||"Units",series:l12};
+  });
+  // seeded audit check
+  let seed=null;
+  if(s.seeds){const pool=rows.filter(r=>r.action==="none"&&r.cover!=null).sort((a,b)=>a.id<b.id?-1:1);
+    if(pool.length){const pick=pool[hash(runId)%pool.length];
+      seed={...pick,id:pick.id,seed:true,action:"reorder",qty:Math.round(pick.std*2),after:(pick.position+pick.std*2)/pick.fwd,
+        why:`Sales are firming ahead of the festival and cover is tightening. Order ${fmt0(pick.std*2)} units to stay ahead.`,tags:["Festival +"+s.festPct+"% in forward demand"]};}}
+  const order={review:0,reorder:1,pause:2,none:3,holdout:4};
+  rows.sort((a,b)=>order[a.action]-order[b.action]||b.outside-a.outside||a.id.localeCompare(b.id));
+  return {blocked:checks.some(c=>c.lvl==="fail"),checks,rows,seed,runId,runMon,festival,ym,weeks,lastWeek:weeks[weeks.length-1]};
+}
+
+/* ---------- decisions ---------- */
+const decId = (runId,skuId,seed)=>`${runId}_${skuId}${seed?"_audit":""}`;
+function queueItems(){
+  if(!result||result.blocked) return [];
+  const items=result.rows.filter(r=>r.action!=="none"&&r.action!=="holdout").map(r=>({...r,seed:false}));
+  if(result.seed){const at=Math.min(items.length,1+hash(result.runId+"pos")%Math.max(1,items.length));items.splice(at,0,result.seed);}
+  return items;
+}
+async function decide(item,status,extra={}){
+  const id=decId(result.runId,item.id,item.seed);
+  const doc={runId:result.runId,sku:item.id,skuName:item.name,action:item.action,recQty:item.qty||0,finalQty:status==="rejected"?0:(extra.finalQty??item.qty??0),
+    status,reason:extra.reason||"",note:extra.note||"",seeded:!!item.seed,cover:item.cover==null?null:+item.cover.toFixed(2),
+    supplier:item.supplier,uom:item.uom,decidedBy:me?.id||null,decidedAt:new Date().toISOString(),dataSource};
+  decisions[id]=doc; render();
+  if(db&&canWrite){try{await db.collection("decisions").doc(id).set(doc);}catch(e){handleWriteError(e);}}
+}
+async function undo(item){const id=decId(result.runId,item.id,item.seed);delete decisions[id];render();
+  if(db&&canWrite){try{await db.collection("decisions").doc(id).delete();}catch(e){handleWriteError(e);}}}
+function handleWriteError(e){
+  if(e&&e.code==="invalid_argument"){canWrite=false;showBanner("warn","You can view this desk but not record decisions. Ask Deepa for Contributor access.");}
+  else if(e&&e.code==="quota_exceeded") showBanner("warn","The decision log is full. Older weeks need archiving before new decisions can be saved.");
+  else toast("Couldn't save. Check your connection and try again.");
+}
+function showBanner(kind,text){const b=$("#saveBanner");b.className="banner "+kind;b.textContent=text;b.hidden=false;}
+
+/* ---------- render ---------- */
+function gauge(r){
+  if(r.cover==null) return "";
+  const top=Math.max(r.max*1.35,(r.after||0)*1.1,r.cover*1.1,r.min+2);
+  const W=600,H=30,x=v=>Math.max(2,Math.min(W-2,(v/top)*W));
+  const ticks=[0,r.min,r.max].map(v=>`<text x="${x(v)}" y="29" font-size="10" text-anchor="${v===0?"start":"middle"}" fill="var(--ink-3)" font-family="var(--f-mono)">${v}w</text>`).join("");
+  const after=(r.after!=null&&r.action==="reorder")?`<line x1="${x(r.cover)}" x2="${x(r.after)}" y1="9" y2="9" stroke="var(--reorder)" stroke-width="2" stroke-dasharray="3 3"/><rect x="${x(r.after)-2}" y="2" width="4" height="14" rx="1" fill="var(--reorder)"/>`:"";
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Cover ${fmt(r.cover)} weeks; target ${r.min} to ${r.max} weeks${r.after&&r.action==="reorder"?"; after order "+fmt(r.after)+" weeks":""}">
+    <rect x="0" y="5" width="${W}" height="8" rx="4" fill="var(--sunk)"/>
+    <rect x="${x(r.min)}" y="5" width="${x(r.max)-x(r.min)}" height="8" fill="var(--band)"/>
+    ${after}<rect x="${x(r.cover)-2}" y="1" width="4" height="16" rx="1" fill="var(--ink)"/>${ticks}</svg>`;
+}
+const actLabel={reorder:"Reorder",pause:"Pause next order",review:"Your judgement",none:"No action",holdout:"Control group"};
+function card(item){
+  const id=decId(result.runId,item.id,item.seed); const dec=decisions[id];
+  const closed=!!runsClosed[result.runId];
+  const facts=[["On hand",fmt0(item.onHand)],["Position",fmt0(item.position)],["12-wk avg / wk",fmt(item.a12)],["4-wk avg / wk",fmt(item.a4)],["Forward demand / wk",fmt(item.fwd)],["Weeks of cover",fmt(item.cover)],["Standard qty",fmt0(item.std)]];
+  if(item.action==="reorder") facts.push(["Recommended qty",fmt0(item.qty)],["Cover after",fmt(item.after)]);
+  let decideHtml="";
+  if(dec){
+    const v={approved:"Approved",modified:`Changed to ${fmt0(dec.finalQty)}`,rejected:`Rejected: ${dec.reason}`}[dec.status];
+    decideHtml=`<div class="decide"><span class="verdict ${dec.status}">${esc(v)}</span>${dec.note?`<span class="muted small">“${esc(dec.note)}”</span>`:""}${closed?"":`<button class="btn ghost" data-undo="${esc(id)}">Undo</button>`}</div>`;
+  } else if(!closed){
+    const qtyCtl=item.action==="reorder"?`<label class="small muted" for="q-${esc(id)}">Qty</label><input type="number" min="0" step="1" id="q-${esc(id)}" value="${item.qty}">`:"";
+    decideHtml=`<div class="decide" data-id="${esc(id)}">
+      <button class="btn good" data-approve="${esc(id)}">${item.action==="review"?"Mark reviewed":"Approve"}</button>
+      ${qtyCtl}${item.action==="reorder"?`<button class="btn" data-modify="${esc(id)}">Approve changed qty</button>`:""}
+      <button class="btn" data-rejectopen="${esc(id)}">Reject…</button>
+      <div class="rejectbox" id="rj-${esc(id)}" hidden>
+        <select id="rs-${esc(id)}" aria-label="Reason"><option value="">Reason for rejecting…</option>${REASONS.map(r=>`<option>${esc(r)}</option>`).join("")}</select>
+        <input id="rn-${esc(id)}" placeholder="What do you know that the rules don't?" aria-label="Note">
+        <button class="btn primary" data-reject="${esc(id)}">Reject</button>
+      </div></div>`;
+  }
+  const seedReveal=closed&&item.seed?`<span class="tag" style="border-color:var(--review);color:var(--review)">Audit check: planted wrong recommendation</span>`:"";
+  return `<article class="card ${item.action}${dec?" decided":""}"><div class="stripe"></div><div class="body">
+    <div class="rowtop"><span class="act ${item.action}">${actLabel[item.action]}${item.action==="reorder"?" "+fmt0(item.qty):""}</span><span class="name">${esc(item.name)}</span><span class="sku">${esc(item.id)} · ${esc(item.cat||"")} · supplier ${esc(item.supplier)}</span></div>
+    <p class="why">${esc(item.why)}</p>
+    <div class="gauge">${gauge(item)}</div>
+    <div class="tags">${item.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join("")}${seedReveal}</div>
+    <details><summary class="small muted" style="cursor:pointer">Numbers</summary><dl class="facts">${facts.map(([k,v])=>`<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl></details>
+    ${decideHtml}</div></article>`;
+}
+function render(){
+  if(!result) return;
+  // header
+  const closed=runsClosed[result?.runId];
+  $("#weekchip").innerHTML = result.blocked ? `<span class="pill warn">Data check failed</span>` :
+    `<span class="pill">Run week ${esc(result.runId)} · from ${dstr(result.runMon)}</span>${result.festival?`<span class="pill fest">Festival month +${settings.festPct}%</span>`:""}<span class="pill">${dataSource==="case"?"Case data":"Uploaded data"}</span>${closed?`<span class="pill okp">Week closed</span>`:""}`;
+  // queue
+  if(result.blocked){$("#summary").innerHTML="";$("#queue").innerHTML=`<div class="banner warn">A data check failed, so no recommendations were made this week. Open Data checks to see what to fix.</div>`;$("#queueHint").textContent="";$("#btnBulk").disabled=true;$("#btnClose").disabled=true;}
+  else{
+    const items=queueItems(); const real=result.rows;
+    const n=a=>real.filter(r=>r.action===a).length;
+    const pending=items.filter(i=>!decisions[decId(result.runId,i.id,i.seed)]).length;
+    const noneRows=real.filter(r=>r.action==="none");
+    const noneDone=noneRows.filter(r=>decisions[decId(result.runId,r.id,false)]).length;
+    const units=real.filter(r=>r.action==="reorder").reduce((a,r)=>a+r.qty,0);
+    $("#summary").innerHTML=[
+      ["reorder",n("reorder"),"Reorders",`${fmt0(units)} units in total`],
+      ["pause",n("pause"),"Pause next order","Above max cover"],
+      ["review",n("review"),"Your judgement","Rules can't apply safely"],
+      ["",`${pending}`,"Waiting on you",`of ${items.length} in the queue`],
+      ["",`${noneDone}/${noneRows.length}`,"No-action SKUs signed off","Inside the band, steady sales"]
+    ].map(([c,b,l,s])=>`<div class="stat ${c}"><b class="num">${b}</b><span><strong>${l}</strong></span><span>${s}</span></div>`).join("");
+    $("#queueHint").textContent=`Most urgent first: sorted by how far each SKU sits outside its target cover band, relative to that band. ${settings.seeds?"One recommendation each week is a planted audit check; it is revealed when you close the week.":""}`;
+    $("#queue").innerHTML=items.map(card).join("")||`<div class="banner ok">Nothing needs a decision this week.</div>`;
+    $("#btnBulk").disabled=!!closed||noneDone===noneRows.length;
+    $("#btnClose").disabled=false; $("#btnClose").textContent=closed?"Export procurement file":"Close week & export";
+    renderClose();
+  }
+  renderAll(); renderChecks(); renderLog(); renderSettingsMeta();
+}
+function renderClose(){
+  const el=$("#closeOut"); const run=runsClosed[result.runId]; if(!run){el.innerHTML="";return;}
+  const s=run.summary||{};
+  el.innerHTML=`<div class="banner ok"><strong>Week ${esc(result.runId)} closed.</strong> ${s.orders||0} purchase order lines (${fmt0(s.units||0)} units) and ${s.holds||0} holds go to procurement. ${s.seedCaught==null?"":s.seedCaught?"Audit check caught: the planted recommendation was rejected.":"Audit check missed: the planted recommendation was approved. Slow down on the next queue."}</div>`;
+}
+function renderAll(){
+  const rows=result.rows||[];
+  $("#allTable").innerHTML=`<thead><tr><th>SKU</th><th>Name</th><th>Perish.</th><th class="num">On hand</th><th class="num">12-wk avg</th><th class="num">4-wk avg</th><th class="num">Trend</th><th class="num">Fwd / wk</th><th class="num">Cover (wks)</th><th class="num">Band</th><th>Action</th><th class="num">Qty</th></tr></thead><tbody>`+
+  rows.map(r=>`<tr><td class="mono">${esc(r.id)}</td><td>${esc(r.name)}</td><td>${r.perish?"High":"Low"}</td><td class="num mono">${fmt0(r.onHand)}</td><td class="num mono">${fmt(r.a12)}</td><td class="num mono">${fmt(r.a4)}</td><td class="num mono">${r.ratio==null?"–":(r.ratio>=1?"+":"")+fmt0((r.ratio-1)*100)+"%"}</td><td class="num mono">${fmt(r.fwd)}</td><td class="num mono">${fmt(r.cover)}</td><td class="num mono">${r.min}–${r.max}</td><td><span class="act ${r.action}">${actLabel[r.action]}</span></td><td class="num mono">${r.action==="reorder"?fmt0(r.qty):""}</td></tr>`).join("")+"</tbody>";
+}
+function renderChecks(){
+  $("#checks").innerHTML=(result.checks||[]).map(c=>`<div class="check"><span class="dot ${c.lvl}" aria-label="${c.lvl}"></span><div><h3>${esc(c.title)}</h3><p>${esc(c.text)}</p></div></div>`).join("");
+}
+function renderLog(){
+  const all=Object.values(decisions).sort((a,b)=>(b.decidedAt||"").localeCompare(a.decidedAt||""));
+  const real=all.filter(d=>!d.seeded&&d.action!=="none");
+  const rej=real.filter(d=>d.status==="rejected"), mod=real.filter(d=>d.status==="modified");
+  const units=real.reduce((a,d)=>a+(d.recQty||0),0), rejUnits=rej.reduce((a,d)=>a+(d.recQty||0),0)+mod.reduce((a,d)=>a+Math.abs((d.recQty||0)-(d.finalQty||0)),0);
+  const seeds=all.filter(d=>d.seeded); const caught=seeds.filter(d=>d.status==="rejected").length;
+  const rate=real.length?rej.length/real.length:null;
+  const alarm=rate==null?"":rate>0.4?"Above 40%: kill-criterion territory":rate<0.05&&real.length>=10?"Below 5%: check for rubber-stamping":"Inside the healthy range";
+  $("#logStats").innerHTML=[
+    [real.length,"Decisions on recommendations","excludes no-action sign-offs"],
+    [rate==null?"–":fmt0(rate*100)+"%","Rejected",alarm],
+    [units?fmt0(rejUnits/units*100)+"%":"–","Units overridden","rejections + quantity changes, by units"],
+    [seeds.length?`${caught}/${seeds.length}`:"–","Audit checks caught","planted wrong recommendations rejected"]
+  ].map(([b,l,s])=>`<div class="stat"><b class="num">${b}</b><span><strong>${l}</strong></span><span>${esc(s)}</span></div>`).join("");
+  const closedRun=id=>!!runsClosed[id];
+  $("#logTable").innerHTML=`<thead><tr><th>Week</th><th>SKU</th><th>Recommendation</th><th>Decision</th><th class="num">Final qty</th><th>Reason</th><th>Note</th><th>When</th></tr></thead><tbody>`+
+    (all.length?all.map(d=>`<tr><td class="mono">${esc(d.runId)}</td><td>${esc(d.sku)} <span class="muted">${esc(d.skuName||"")}</span>${d.seeded&&closedRun(d.runId)?' <span class="tag">audit</span>':""}</td><td>${esc(actLabel[d.action]||d.action)}${d.action==="reorder"?" "+fmt0(d.recQty):""}</td><td>${esc(d.status)}</td><td class="num mono">${fmt0(d.finalQty)}</td><td>${esc(d.reason)}</td><td style="white-space:normal;min-width:160px">${esc(d.note)}</td><td class="mono small">${esc((d.decidedAt||"").replace("T"," ").slice(0,16))}</td></tr>`).join(""):`<tr><td colspan="8" class="muted">No decisions yet. Decisions appear here as soon as they're made in the review queue.</td></tr>`)+"</tbody>";
+}
+function renderSettings(){
+  const f=[["trendPct","High-demand trigger (%)","Last-4-week average above the 12-week average by more than this.",1],
+    ["hdMult","High-demand order multiple (×)","Applied to the standard reorder quantity.",0.1],
+    ["minWeeks","Minimum cover (weeks)","Below this, reorder now. Low-perishability SKUs.",0.5],
+    ["maxWeeks","Maximum cover (weeks)","Above this, pause the next order. Low-perishability SKUs.",0.5],
+    ["perMin","Perishable minimum (weeks)","Replaces the minimum for high-perishability SKUs.",0.5],
+    ["perMax","Perishable maximum (weeks)","Replaces the maximum; orders are capped so cover stays under it.",0.5],
+    ["festPct","Festival uplift (%)","Added to forward demand only in festival months. Trend detection uses raw sales.",1],
+    ["borderPct","Borderline flag (%)","Tag SKUs whose cover is this close to a threshold.",1]];
+  const skus=(result?.rows||[]).slice().sort((a,b)=>a.id.localeCompare(b.id));
+  $("#settingsForm").innerHTML=f.map(([k,l,h,st])=>`<div class="field"><label for="s-${k}">${l}</label><input type="number" step="${st}" id="s-${k}" value="${settings[k]}"><small>${h}</small></div>`).join("")+
+    `<div class="field"><label for="s-seeds">Weekly audit check</label><select id="s-seeds"><option value="1"${settings.seeds?" selected":""}>On: plant one wrong recommendation</option><option value="0"${settings.seeds?"":" selected"}>Off</option></select><small>Tests whether reviews are real. Revealed when the week is closed.</small></div>`+
+    `<div class="field" style="grid-column:1/-1"><label>Control group (planned by hand)</label><small>SKUs kept on Raghav's manual process so results can be compared. Aim for about 1 in 5.</small><div class="tags" style="margin-top:6px">${skus.map(r=>`<label class="tag" style="cursor:pointer"><input type="checkbox" data-hold="${esc(r.id)}"${(settings.holdout||[]).includes(r.id)?" checked":""}> ${esc(r.id)}</label>`).join("")}</div></div>`;
+}
+function renderSettingsMeta(){$("#settingsMeta").textContent=settingsMeta?`Last changed ${settingsMeta.at.replace("T"," ").slice(0,16)} UTC`:"Using Raghav's documented defaults.";
+  $("#dataMeta").textContent=dataSource==="case"?"Showing the case data (weeks 2026-W27 to W42, inventory 19 Oct 2026).":`Showing uploaded data${data.uploadedAt?" from "+data.uploadedAt.replace("T"," ").slice(0,16)+" UTC":""}.`;}
+
+/* ---------- export ---------- */
+function exportCSV(){
+  const items=queueItems().filter(i=>!i.seed);
+  const lines=[["Action","SKU_ID","SKU_Name","Supplier_ID","Quantity","Unit","Need_By_Date","Run_Week","Decision","Reason","Note"]];
+  const needBy=dstr(new Date(result.runMon.getTime()+7*864e5));
+  for(const i of items){const d=decisions[decId(result.runId,i.id,false)]; if(!d||d.status==="rejected") continue;
+    if(i.action==="reorder"&&d.finalQty>0) lines.push(["Create PO",i.id,i.name,i.supplier,d.finalQty,i.uom,needBy,result.runId,d.status,"",d.note]);
+    if(i.action==="pause") lines.push(["Hold next PO",i.id,i.name,i.supplier,0,i.uom,"",result.runId,d.status,"",d.note]);}
+  const csv=lines.map(r=>r.map(v=>{v=String(v??"");return /[",\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v;}).join(",")).join("\n");
+  return {csv,orders:lines.filter(l=>l[0]==="Create PO").length,holds:lines.filter(l=>l[0]==="Hold next PO").length,units:lines.filter(l=>l[0]==="Create PO").reduce((a,l)=>a+(+l[4]),0)};
+}
+async function closeWeek(){
+  const items=queueItems(); const pending=items.filter(i=>!decisions[decId(result.runId,i.id,i.seed)]);
+  if(!runsClosed[result.runId]){
+    if(pending.length){toast(`${pending.length} item${pending.length>1?"s":""} still need a decision.`);return;}
+    const ex=exportCSV(); const seedDec=result.seed?decisions[decId(result.runId,result.seed.id,true)]:null;
+    const run={runId:result.runId,closedAt:new Date().toISOString(),closedBy:me?.id||null,dataSource,festival:result.festival,
+      summary:{orders:ex.orders,holds:ex.holds,units:ex.units,seedCaught:seedDec?seedDec.status==="rejected":null,queue:items.length}};
+    runsClosed[result.runId]=run; render();
+    if(db&&canWrite){try{await db.collection("runs").doc(result.runId).set(run);}catch(e){handleWriteError(e);}}
+  }
+  const ex=exportCSV();
+  if(!ex.orders&&!ex.holds){toast("Nothing approved for procurement this week.");return;}
+  if(!downloads){toast("Downloads aren't available here. Open the desk in claude.ai to export.");return;}
+  try{await downloads.save({filename:`procurement_${result.runId}.csv`,data:ex.csv});toast("Procurement file saved.");}
+  catch(e){if(e&&e.code==="declined")return; toast("Couldn't save the file.");}
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click",e=>{
+  const t=e.target.closest("button,[data-tab]"); if(!t) return;
+  if(t.dataset.tab){activeTab=t.dataset.tab;document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===activeTab)));document.querySelectorAll("[data-panel]").forEach(p=>p.hidden=p.dataset.panel!==activeTab);if(activeTab==="settings")renderSettings();return;}
+  const find=id=>queueItems().find(i=>decId(result.runId,i.id,i.seed)===id);
+  if(t.dataset.approve){const it=find(t.dataset.approve);if(it)decide(it,"approved");}
+  else if(t.dataset.modify){const it=find(t.dataset.modify);const v=Math.round(+$("#q-"+CSS.escape(t.dataset.modify)).value);if(!(v>=0)){toast("Enter a quantity of 0 or more.");return;}if(it)decide(it,v===it.qty?"approved":"modified",{finalQty:v});}
+  else if(t.dataset.rejectopen){const b=$("#rj-"+CSS.escape(t.dataset.rejectopen));b.hidden=!b.hidden;if(!b.hidden)$("#rs-"+CSS.escape(t.dataset.rejectopen)).focus();}
+  else if(t.dataset.reject){const id=t.dataset.reject;const r=$("#rs-"+CSS.escape(id)).value;if(!r){toast("Pick a reason. It's how the rules get better.");return;}const it=find(id);if(it)decide(it,"rejected",{reason:r,note:$("#rn-"+CSS.escape(id)).value.trim()});}
+  else if(t.dataset.undo){const it=find(t.dataset.undo);if(it)undo(it);}
+  else if(t.id==="btnBulk") bulkApprove();
+  else if(t.id==="btnClose") closeWeek();
+  else if(t.id==="btnSaveSettings") saveSettings();
+  else if(t.id==="btnResetSettings"){settings={...DEFAULTS};renderSettings();toast("Defaults restored. Save to apply for everyone.");recompute();}
+  else if(t.id==="btnLoadData") loadUploads();
+  else if(t.id==="btnSampleData") useCaseData();
+});
+async function bulkApprove(){
+  const rows=result.rows.filter(r=>r.action==="none"&&!decisions[decId(result.runId,r.id,false)]);
+  for(const r of rows){const id=decId(result.runId,r.id,false);decisions[id]={runId:result.runId,sku:r.id,skuName:r.name,action:"none",recQty:0,finalQty:0,status:"approved",reason:"",note:"",seeded:false,cover:+r.cover.toFixed(2),supplier:r.supplier,uom:r.uom,decidedBy:me?.id||null,decidedAt:new Date().toISOString(),dataSource};}
+  render(); toast(`${rows.length} no-action SKUs signed off.`);
+  if(db&&canWrite){for(const r of rows){try{await db.collection("decisions").doc(decId(result.runId,r.id,false)).set(decisions[decId(result.runId,r.id,false)]);}catch(e){handleWriteError(e);break;}}}
+}
+function readSettingsForm(){
+  const s={...settings};
+  for(const k of ["trendPct","hdMult","minWeeks","maxWeeks","perMin","perMax","festPct","borderPct"]){const v=+$("#s-"+k).value;if(!isFinite(v)||v<0){toast("Every rule needs a number of 0 or more.");return null;}s[k]=v;}
+  if(s.minWeeks>=s.maxWeeks||s.perMin>=s.perMax){toast("Each minimum must be below its maximum.");return null;}
+  s.seeds=$("#s-seeds").value==="1"; s.holdout=[...document.querySelectorAll("[data-hold]")].filter(c=>c.checked).map(c=>c.dataset.hold);
+  return s;
+}
+async function saveSettings(){
+  const s=readSettingsForm(); if(!s) return;
+  const changed=Object.keys(DEFAULTS).filter(k=>JSON.stringify(s[k])!==JSON.stringify(settings[k]));
+  settings=s; settingsMeta={at:new Date().toISOString(),by:me?.id||null}; recompute(); toast("Rules saved.");
+  if(db&&canWrite){try{await db.doc("config/rules").set({...settings,updatedAt:settingsMeta.at,updatedBy:settingsMeta.by});
+    if(changed.length) await db.collection("rulechanges").add({at:settingsMeta.at,by:settingsMeta.by,changed:Object.fromEntries(changed.map(k=>[k,s[k]]))});}catch(e){handleWriteError(e);}}
+}
+function readFile(input){return new Promise((res,rej)=>{const f=input.files&&input.files[0];if(!f)return res(null);const r=new FileReader();r.onload=()=>res(String(r.result));r.onerror=()=>rej(r.error);r.readAsText(f);});}
+async function loadUploads(){
+  try{const [a,b,c,d]=await Promise.all(["#upSales","#upSku","#upInv","#upCal"].map(s=>readFile($(s))));
+    if(!a&&!b&&!c&&!d){toast("Choose at least one file to load.");return;}
+    const base=data; const next={sales:a?parseCSV(a):base.sales,sku:b?parseCSV(b):base.sku,inv:c?parseCSV(c):base.inv,cal:d?parseCSV(d):base.cal,dist:base.dist,uploadedAt:new Date().toISOString()};
+    data=next; dataSource="uploaded"; recompute(); toast("Files loaded. Check the Data checks tab.");
+    if(db&&canWrite){const doc={sales:next.sales,sku:next.sku,inv:next.inv,cal:next.cal,uploadedAt:next.uploadedAt,by:me?.id||null};
+      if(JSON.stringify(doc).length>250000){showBanner("warn","These files are too large to share through the desk. They're loaded for you only.");return;}
+      try{await db.doc("datasets/current").set(doc);}catch(e){handleWriteError(e);}}
+  }catch(e){toast("Couldn't read that file. Is it a CSV?");}
+}
+async function useCaseData(){data={...caseData(),dist:data.dist};dataSource="case";recompute();toast("Using the case data.");
+  if(db&&canWrite){try{await db.doc("datasets/current").delete();}catch(e){handleWriteError(e);}}}
+function recompute(){result=runEngine(data,settings);render();if(activeTab==="settings")renderSettings();}
+
+/* ---------- boot ---------- */
+data={...caseData(),dist:parseCSV(`Distributor_ID,Distributor_Name,Region,Status
+DIST001,NutriFlow Distributors,Maharashtra,Active
+DIST002,GrainPath Logistics,Maharashtra,Active
+DIST003,PeakSource Supply,Karnataka,Active
+DIST004,Meridian Trade Co.,Gujarat,Active`)};
+recompute();
+
+(async function connect(){
+  if(!window.claude||!window.claude.use){showBanner("info","Decisions are kept on this screen only. Open the desk in claude.ai to save them for the team.");return;}
+  [db,user,downloads]=await Promise.all([claude.use("db"),claude.use("user"),claude.use("downloads")]);
+  if(user){try{me=await user.me();const w=await user.can("data.write");if(w===false){canWrite=false;showBanner("warn","You can view this desk but not record decisions. Ask Deepa for Contributor access.");}}catch(_){}}
+  if(!db){showBanner("info","Decisions are kept on this screen only. Sign in to claude.ai to save them for the team.");return;}
+  db.doc("config/rules").onSnapshot(s=>{if(s.exists){const d=s.data();settings={...DEFAULTS,...Object.fromEntries(Object.keys(DEFAULTS).filter(k=>k in d).map(k=>[k,d[k]]))};settingsMeta={at:d.updatedAt||"",by:d.updatedBy||null};recompute();}},()=>{});
+  db.doc("datasets/current").onSnapshot(s=>{if(s.exists){const d=s.data();data={sales:d.sales,sku:d.sku,inv:d.inv,cal:d.cal,dist:data.dist,uploadedAt:d.uploadedAt};dataSource="uploaded";recompute();}},()=>{});
+  db.collection("decisions").limit(1000).onSnapshot(s=>{const next={};s.docs.forEach(x=>{next[x.id]=x.data();});decisions=next;render();},()=>{});
+  db.collection("runs").limit(200).onSnapshot(s=>{const next={};s.docs.forEach(x=>{next[x.id]=x.data();});runsClosed=next;render();},()=>{});
+})();
+})();
+</script>
