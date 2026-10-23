@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test",
-    "replay": "node --experimental-strip-types scripts/replay/index.ts"
+    "replay": "node --experimental-strip-types scripts/replay/index.ts",
+    "test:zoho-live": "vitest run --config vitest.live.config.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

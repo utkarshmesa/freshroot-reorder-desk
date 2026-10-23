@@ -46,7 +46,7 @@ export class FakeZoho {
 
     if (path === "/purchaseorders") {
       const status = u.searchParams.get("status");
-      return paged("purchaseorders", [...this.pos.values()].filter((p) => !status || p.status === status).map(({ line_items: _l, ...s }) => s));
+      return paged("purchaseorders", [...this.pos.values()].filter((p) => !status || p.status === status).map(withoutLines));
     }
     let m = /^\/purchaseorders\/([^/]+)$/.exec(path);
     if (m) {
@@ -56,7 +56,7 @@ export class FakeZoho {
     if (path === "/purchasereceives") {
       const from = u.searchParams.get("date_start") ?? "0000";
       const to = u.searchParams.get("date_end") ?? "9999";
-      return paged("purchasereceives", [...this.receives.values()].filter((r) => r.date >= from && r.date <= to).map(({ line_items: _l, ...s }) => s));
+      return paged("purchasereceives", [...this.receives.values()].filter((r) => r.date >= from && r.date <= to).map(withoutLines));
     }
     m = /^\/purchasereceives\/([^/]+)$/.exec(path);
     if (m) {
@@ -81,6 +81,13 @@ export class FakeZoho {
   writes() {
     return this.requests.filter((r) => r.method !== "GET" && new URL(r.url).origin !== ACCOUNTS);
   }
+}
+
+/** List endpoints return summaries without line items. */
+function withoutLines<T extends { line_items: unknown }>(o: T): Omit<T, "line_items"> {
+  const copy: Partial<T> = { ...o };
+  delete copy.line_items;
+  return copy as Omit<T, "line_items">;
 }
 
 function res(status: number, body: unknown, headers: Record<string, string> = {}) {
