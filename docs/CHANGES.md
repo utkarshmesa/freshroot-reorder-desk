@@ -140,7 +140,7 @@ BUILD_PLAN §8 says: "Q = std × (1.5 if HD else 1); raise in std steps until P 
 
 ## C-031: The stockout-week definition (C-017) counts the plan's own perishable policy as stockouts
 
-**Status: Proposed. Needs your decision before the day-45 gate is judged.** Found while building the replay (Milestone 4).
+**Status: Decided 24 Oct 2026: option B, and "no worse" passes the stockout test.** Found while building the replay (Milestone 4). Stress-tested in docs/STRESS_TEST_REPLAY.md; see C-033 for the refinements that test produced.
 
 **What happens.** C-017 defines a stockout week as SAP on-hand at Sunday = 0 **or below one week of raw demand**. The perishable band (D7: 4 weeks of *position* with the default 2-week lead time) is designed to keep only about 1–2 weeks on the shelf, because the rest is on order. So the Sunday shelf routinely dips below one week just before the next delivery, **even though nothing runs out and no sale is lost**.
 
@@ -158,7 +158,7 @@ The replay already reports all three numbers, and prints the verdict under both 
 
 ## C-032: Replay method parameters (Milestone 4 review)
 
-**Status: Proposed.** These are method choices, not business numbers. Confirm them, or give other values, before the gate runs on real data.
+**Status: Decided 24 Oct 2026:** 52 weeks, 95% intervals and the +1-week-late test as below. The drift limit (25%) applies to **non-perishables only**, because perishable drift mostly reflects shelf-life assumptions. C-033 adds a check that this limit misses.
 
 | Parameter | Value | Why |
 |---|---|---|
@@ -166,3 +166,19 @@ The replay already reports all three numbers, and prints the verdict under both 
 | Maximum drift of the simulated actual arm from real SAP stock | 25% of average on-hand | Beyond this, the simulator doesn't represent what happened well enough to judge |
 | Significance | 95% bootstrap over SKUs, both differences clear of zero | A better total that could be noise is INCONCLUSIVE, not PASS |
 | Robustness | must also pass with every rules-arm delivery 1 week late | Real suppliers are sometimes late; the rules arm otherwise gets perfect deliveries |
+
+## C-033: Replay refinements from the first-principles stress test
+
+**Status: Proposed. Needs your approval before it is built.** Evidence: docs/STRESS_TEST_REPLAY.md (synthetic ground-truth world; not Freshroots data). Affects C-020, C-031 and C-032. No business numbers change.
+
+| # | Change | Why |
+|---|---|---|
+| 1 | Net unexplained-gain check on all SKUs: stock that appears from nowhere above 3% of receipts → NOT DECIDABLE | With 10% of receipts missing, the non-perishable drift was 23% and passed. The verdict tilted to the rules falsely. The net check showed −10.7% |
+| 2 | Perishables need a shelf life in the master to count in the gate | A blank shelf life invented 8,386 manual write-offs against a true 15, and no check flagged it |
+| 3 | The infeasible-card policy (skip vs order MOQ) is an explicit gate input; both verdicts are shown; real perishable MOQs are needed before the gate | With default MOQ = std qty, about 61% of perishable weeks are infeasible. Skip loses sales in 554 weeks; order-MOQ loses 0 |
+| 4 | A measure where both arms are 0 → INCONCLUSIVE, not FAIL | 0 vs 0 write-offs currently fails "strictly fewer" |
+| 5 | A lost-sales week needs ≥ 1 whole lost unit | Imputed demand is fractional |
+| 6 | The report states the known bias against manual planning when ordered_units is missing | The actual arm saw about half the true lost-sales weeks |
+| 7 | Supplier-clustered interval shown as a check | Correlated supplier demand; intervals came out similar |
+
+**Open question (business number, D18):** with default perishable bounds and MOQ = std qty, the live queue will mostly show infeasible perishable cards. Real perishable MOQs (already requested) settle this.
