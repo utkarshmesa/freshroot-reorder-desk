@@ -23,6 +23,13 @@ export class FakeZoho {
   ignoreDateFilter = false;
   /** Responses to return for the next API calls, in order, before normal handling resumes. */
   script: Scripted[] = [];
+  /** Status a created PO gets (Zoho creates drafts; anything else is the ZO-14 case). */
+  createStatus = "draft";
+  /** Create the PO, then answer 500: the "response lost after POST" case (ZO-04). */
+  loseNextCreateResponse = false;
+  /** PO ids the reference search doesn't see yet (search lagging behind a create). */
+  hiddenFromSearch = new Set<string>();
+  private nextId = 1;
 
   addPo(po: Partial<ZohoPo> & { purchaseorder_id: string; status: string; line_items: ZohoPo["line_items"] }) {
     this.pos.set(po.purchaseorder_id, { purchaseorder_number: `PO-${po.purchaseorder_id}`, ...po } as ZohoPo);
@@ -40,7 +47,8 @@ export class FakeZoho {
     if (next) return res(next.status, next.body ?? { code: 1, message: `scripted ${next.status}` }, next.headers);
     if (u.searchParams.get("organization_id") !== ORG) return res(400, { code: 6041, message: "organization_id is missing" });
     const path = u.pathname.replace("/inventory/v1", "");
-    if (init.method !== "GET") return res(405, { code: 9, message: "fake: only GET is implemented" });
+    if (init.method === "POST" && path === "/purchaseorders") return this.create(init.body);
+    if (init.method !== "GET") return res(405, { code: 9, message: "fake: only GET and POST /purchaseorders are implemented" });
 
     const page = Number(u.searchParams.get("page") ?? 1);
     const per = Number(u.searchParams.get("per_page") ?? 200);
@@ -48,7 +56,14 @@ export class FakeZoho {
 
     if (path === "/purchaseorders") {
       const status = u.searchParams.get("status");
-      return paged("purchaseorders", [...this.pos.values()].filter((p) => !status || p.status === status).map(withoutLines));
+      const vendor = u.searchParams.get("vendor_id");
+      const ref = u.searchParams.get("reference_number");
+      return paged(
+        "purchaseorders",
+        [...this.pos.values()]
+          .filter((p) => (!status || p.status === status) && (!vendor || p.vendor_id === vendor) && (!ref || (p.reference_number === ref && !this.hiddenFromSearch.has(p.purchaseorder_id))))
+          .map(withoutLines),
+      );
     }
     let m = /^\/purchaseorders\/([^/]+)$/.exec(path);
     if (m) {
@@ -69,6 +84,20 @@ export class FakeZoho {
     if (path === "/contacts") return paged("contacts", u.searchParams.get("contact_type") === "vendor" ? [...this.vendors.values()] : []);
     return res(404, { code: 5, message: `fake: no route ${path}` });
   };
+
+  private create(body?: string) {
+    const b = JSON.parse(body ?? "{}") as { vendor_id?: string; reference_number?: string; date?: string; line_items?: Array<{ item_id: string; quantity: number }> } & Record<string, unknown>;
+    if ("status" in b) return res(400, { code: 9, message: "fake: our payload must never carry a status" });
+    if (!b.vendor_id || !b.line_items?.length) return res(400, { code: 4, message: "vendor_id and line_items are required" });
+    const id = `new-${this.nextId++}`;
+    const po: ZohoPo = { purchaseorder_id: id, purchaseorder_number: `PO-${id}`, status: this.createStatus, vendor_id: b.vendor_id, reference_number: b.reference_number, date: b.date, line_items: b.line_items.map((l) => ({ item_id: l.item_id, quantity: l.quantity, quantity_received: 0 })), last_modified_time: new Date().toISOString() };
+    this.pos.set(id, po);
+    if (this.loseNextCreateResponse) {
+      this.loseNextCreateResponse = false;
+      return res(500, { code: 1, message: "fake: response lost" });
+    }
+    return res(201, { code: 0, message: "The purchase order has been created.", purchaseorder: po });
+  }
 
   private token(u: URL, method: string, body?: string) {
     if (method !== "POST" || u.pathname !== "/oauth/v2/token") return res(400, { error: "invalid_request" });

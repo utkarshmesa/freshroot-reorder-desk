@@ -86,7 +86,11 @@ export class ZohoHttp {
     return this.request<T>("GET", `${this.o.apiBase}${path}?${q}`);
   }
 
-  /** POST JSON. Only the draft writer (milestone 5) uses this. */
+  /**
+   * POST JSON. Only the draft writer uses this. Not retried on 5xx: the create may have happened with the
+   * response lost, and a blind retry would make a second draft (the caller searches by reference instead).
+   * 429 is retried: the request was refused, not processed.
+   */
   async post<T = Record<string, unknown>>(path: string, body: unknown): Promise<T> {
     const q = new URLSearchParams({ organization_id: this.o.organizationId });
     return this.request<T>("POST", `${this.o.apiBase}${path}?${q}`, JSON.stringify(body));
@@ -112,7 +116,7 @@ export class ZohoHttp {
         attempt--;
         continue;
       }
-      if (res.status === 429 || res.status >= 500) {
+      if (res.status === 429 || (res.status >= 500 && method === "GET")) {
         if (attempt >= this.maxTries) throw new ZohoApiError(`Zoho ${method} failed after ${attempt} tries: HTTP ${res.status} ${messageOf(json, text)}`, res.status);
         const after = Number(res.headers.get("retry-after"));
         await this.sleep(Number.isFinite(after) && after > 0 ? Math.min(after, 60) * 1000 : 1000 * 2 ** (attempt - 1));

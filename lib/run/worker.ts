@@ -62,6 +62,7 @@ function namesFor(r: Recommendation, distributorNames: ReadonlyMap<string, strin
 }
 
 export function toRow(runId: string, r: Recommendation, pendingSuppliers: ReadonlySet<string> = new Set(), distributorNames: ReadonlyMap<string, string> | null = null) {
+  const state = lineState(r, pendingSuppliers);
   const { skuId, action, qty, cover, coverAfter, flags, topDistributors, triage, assumed, holdout, daysToStockout, spotCheck, ...inputs } = r;
   return {
     run_id: runId,
@@ -73,7 +74,8 @@ export function toRow(runId: string, r: Recommendation, pendingSuppliers: Readon
     flags,
     top_distributors: topDistributors,
     triage,
-    line_state: lineState(r, pendingSuppliers),
+    line_state: state,
+    final_qty: state === "auto" ? qty : null, // auto lines are settled at the engine's quantity
     reason_text: reasonTemplate(cardFacts(r).facts, namesFor(r, distributorNames)),
     reason_source: "template",
     inputs,

@@ -36,4 +36,7 @@ export async function resetData(): Promise<void> {
     const { error } = await svc.from(t).delete().not(col, "is", null);
     if (error) throw new Error(`reset ${t}: ${error.message}`);
   }
+  // Every file starts in shadow mode (the default), whatever an earlier file switched to.
+  const { error } = await svc.from("app_mode").update({ mode: "shadow" }).not("mode", "is", null);
+  if (error) throw new Error(`reset app_mode: ${error.message}`);
 }
