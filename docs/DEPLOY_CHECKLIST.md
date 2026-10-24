@@ -58,8 +58,9 @@ There is no CI yet, so run these locally on the commit being deployed. All must 
 5. [ ] Auth → Email Templates:
    - paste `supabase/templates/magic_link.html` into **Magic Link**;
    - paste `supabase/templates/invite.html` into **Invite user**.
-   - Both links go to `/auth/confirm?token_hash=…`. Without this, emailed sign-in links won't work.
-6. [ ] Auth → SMTP: use Resend's SMTP so sign-in emails aren't held up by the default mailer's low limits.
+   - Both links go to `/auth/confirm?token_hash=…`.
+   - **Free plan (C-042):** Supabase doesn't allow template changes without custom SMTP. Skip this step: the app also accepts Supabase's default links (sign-in links come back to `/auth/confirm` with a one-time code; invites come back to `/login` with the session in the address). Redirect URLs must then include `https://<your-domain>/**`.
+6. [ ] Auth → SMTP: use Resend's SMTP so sign-in emails aren't held up by the default mailer's low limits. On the free plan without SMTP, Supabase's built-in mailer sends only a few emails an hour, and only to addresses in your Supabase team: fine for a demo, not for Freshroots.
 7. [ ] First two people (an admin can't make an owner, by design):
    1. Auth → Users → **Invite user** for IT admin and for Deepa.
    2. SQL editor, with the user ids from the Users list:

@@ -14,6 +14,12 @@ export async function GET(request: NextRequest) {
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host;
   const proto = request.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
   const to = (path: string) => NextResponse.redirect(new URL(path, `${proto}://${host}`));
+  // Supabase's default email (free plan, C-042) verifies the link itself and comes back here with a one-time code.
+  const code = url.searchParams.get("code");
+  if (code) {
+    const { error } = await (await userClient()).auth.exchangeCodeForSession(code);
+    return error ? to("/login?error=link") : to("/");
+  }
   if (!tokenHash || !type || !TYPES.includes(type)) return to("/login?error=link");
   const { error } = await (await userClient()).auth.verifyOtp({ type, token_hash: tokenHash });
   return error ? to("/login?error=link") : to("/");

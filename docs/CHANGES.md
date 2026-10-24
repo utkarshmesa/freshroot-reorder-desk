@@ -284,6 +284,7 @@ The replay already reports all three numbers, and prints the verdict under both 
 | Vercel Hobby | Cron at most once a day per job, fired anywhere within the scheduled hour; functions up to 300 s; **non-commercial use only** | Noon job scheduled `0 7 * * *` (12:30–13:29 IST, always after the Tue 12:00 deadline); Monday upload check `0 5 * * 1` (10:30–11:29 IST); run safety net daily `30 3 * * *`. The 5-minute safety net is replaced by resuming unfinished runs and sending pending alerts whenever someone opens Upload or the Review desk, and by sending alerts right after a committed upload's run |
 | Supabase Free | Paused after a week without enough database activity; **no automatic backups**; 500 MB database | Weekly uploads and the daily cron keep it active. IT takes a weekly backup by hand (RUNBOOK §10) |
 | Resend Free | 100 emails a day, 3,000 a month; verified domain needed | Enough for alerts. Without a verified domain, alerts stay stored and unsent |
+| Supabase Auth email (free, no custom SMTP) | Email templates can't be changed; a few emails an hour; only to addresses in the Supabase team | The app accepts Supabase's default links too: sign-in links via a one-time code at `/auth/confirm`, invites via the session in the address at `/login` |
 | Anthropic | No free plan | Leave `ANTHROPIC_API_KEY` unset: every card and the brief use the rule text (the app is built to work this way) |
 | Zoho | Not available | Run each week with the Zoho failsafe (C-039) |
 

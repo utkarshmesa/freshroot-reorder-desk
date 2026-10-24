@@ -1,5 +1,6 @@
 "use server";
 import { redirect } from "next/navigation";
+import { requestOrigin } from "@/lib/auth/origin";
 import { userClient } from "@/lib/db/server";
 
 export async function signOut() {
@@ -14,6 +15,8 @@ export async function signOut() {
  */
 export async function sendSignInLink(_prev: string | null, form: FormData): Promise<string> {
   const email = String(form.get("email") ?? "").trim().toLowerCase();
-  if (email) await (await userClient()).auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  // emailRedirectTo matters on Supabase's default email (free plan, C-042): the link comes back with a one-time code.
+  if (email)
+    await (await userClient()).auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: `${await requestOrigin()}/auth/confirm` } });
   return "If that address has access, a sign-in link is on its way. It works once.";
 }

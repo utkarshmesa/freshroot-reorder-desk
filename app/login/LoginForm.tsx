@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { browserClient } from "@/lib/db/browser";
 import { sendSignInLink } from "./actions";
 
@@ -9,6 +9,25 @@ export function LoginForm({ linkError }: { linkError: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [linkMessage, requestLink, linkPending] = useActionState(sendSignInLink, null);
+
+  // An invite opened from Supabase's default email (free plan, C-042) arrives with the session in the address
+  // fragment, which only the browser can read. Keep it as the session cookie, then go to the person's screen.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.hash.slice(1));
+    const access_token = p.get("access_token");
+    const refresh_token = p.get("refresh_token");
+    if (!access_token || !refresh_token) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    void browserClient()
+      .auth.setSession({ access_token, refresh_token })
+      .then(({ error: err }) => {
+        if (err) router.replace("/login?error=link");
+        else {
+          router.replace("/");
+          router.refresh();
+        }
+      });
+  }, [router]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

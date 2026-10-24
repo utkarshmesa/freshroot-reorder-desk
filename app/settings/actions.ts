@@ -4,6 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAction } from "@/lib/auth/me";
+import { requestOrigin } from "@/lib/auth/origin";
 import { serviceClient, userClient } from "@/lib/db/server";
 import { isValidWeek } from "@/lib/isoweek";
 import type { RuleParams } from "@/lib/rules/defaults";
@@ -211,7 +212,8 @@ export async function invitePerson(form: FormData) {
   const name = str(form, "name");
   const roles = ROLES.filter((r) => form.get(`role_${r}`) === "on");
   if (!email || !name || roles.length === 0) fail(path, "Email, name and at least one role are required");
-  const { data, error } = await serviceClient().auth.admin.inviteUserByEmail(email);
+  // On Supabase's default email (free plan, C-042) the invite link lands on /login with the session in the address.
+  const { data, error } = await serviceClient().auth.admin.inviteUserByEmail(email, { redirectTo: `${await requestOrigin()}/login` });
   if (error || !data.user) fail(path, error?.message ?? "Invite failed");
   const { error: e2 } = await (await userClient()).rpc("admin_add_user", { p_user_id: data.user.id, p_email: email, p_name: name, p_roles: roles });
   if (e2) fail(path, e2.message);
