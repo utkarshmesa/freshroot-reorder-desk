@@ -77,7 +77,7 @@ beforeEach(async () => {
 describe("decide_line (DS-01..03)", () => {
   it("approve settles the card at the engine's quantity, once; a second click is refused", async () => {
     const runId = await newRun();
-    const card = (await lines(runId)).find((l) => l.sku_id === "SKU004")!; // Mango Drink, queue
+    const card = (await lines(runId)).find((l) => l.sku_id === "SKU004")!; // Almond Milk, queue
     const { client } = await as("raghav");
     const first = await client.rpc("decide_line", { p_rec_id: card.id, p_action: "approve" });
     expect(first.error).toBeNull();
@@ -88,12 +88,11 @@ describe("decide_line (DS-01..03)", () => {
     expect(d).toEqual([{ status: "approved", final_qty: card.qty }]);
   });
 
-  it("change needs a quantity above 0 and a reason; reject needs a reason", async () => {
+  it("change needs a quantity above 0 (reason optional); reject needs a reason", async () => {
     const runId = await newRun();
     const [a, b] = (await lines(runId)).filter((l) => l.line_state === "queued");
     const { client } = await as("raghav");
     expect((await client.rpc("decide_line", { p_rec_id: a!.id, p_action: "change", p_final_qty: 0, p_reason_code: "other" })).error?.message).toMatch(/above 0/);
-    expect((await client.rpc("decide_line", { p_rec_id: a!.id, p_action: "change", p_final_qty: 300 })).error?.message).toMatch(/reason/);
     expect((await client.rpc("decide_line", { p_rec_id: a!.id, p_action: "change", p_final_qty: 300, p_reason_code: "supplier_issue", p_note: "only 300 in stock" })).data).toEqual({ state: "changed", final_qty: 300 });
     expect((await client.rpc("decide_line", { p_rec_id: b!.id, p_action: "reject" })).error?.message).toMatch(/reason/);
     expect((await client.rpc("decide_line", { p_rec_id: b!.id, p_action: "reject", p_reason_code: "disagree_rule" })).data).toEqual({ state: "rejected", final_qty: 0 });

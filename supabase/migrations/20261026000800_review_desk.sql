@@ -42,8 +42,9 @@ begin
     st := 'approved';
     q := r.qty;
   elsif p_action = 'change' then
+    -- BUILD_PLAN §8.8: a reason is required to reject; for a change it is optional (e.g. ordering the MOQ on an
+    -- infeasible perishable card is one of the card's own choices, not a disagreement).
     if p_final_qty is null or p_final_qty <= 0 then raise exception 'A changed quantity must be above 0 (reject the card to order nothing)'; end if;
-    if p_reason_code is null then raise exception 'Pick a reason for the change'; end if;
     st := 'changed';
     q := p_final_qty;
   else
