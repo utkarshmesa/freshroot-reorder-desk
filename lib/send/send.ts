@@ -25,7 +25,8 @@ export type SendOptions = {
 };
 
 export type SendResult = {
-  mode: "live" | "shadow";
+  /** file = C-039 Zoho failsafe: per-supplier PO sheets instead of Zoho drafts. */
+  mode: "live" | "shadow" | "file";
   sent: Array<{ supplierId: string; reference: string; lines: number; units: number }>;
   waiting: Array<{ supplierId: string; queued: number }>;
   alreadySent: string[];
@@ -70,10 +71,12 @@ export async function sendToProcurement(db: SupabaseClient, runId: string, opts:
 async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promise<SendResult> {
   const now = opts.now ?? new Date();
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const run = (await must(db.from("run").select("id, iso_week, mode, status, superseded_by, zoho_read").eq("id", runId).single(), "run")) as unknown as { iso_week: string; mode: string; status: string; superseded_by: string | null; zoho_read: { read_at?: string; po_lines?: PoLine[] } | null };
+  const run = (await must(db.from("run").select("id, iso_week, mode, source, status, superseded_by, zoho_read").eq("id", runId).single(), "run")) as unknown as { iso_week: string; mode: string; source: string; status: string; superseded_by: string | null; zoho_read: { read_at?: string; po_lines?: PoLine[] } | null };
   if (run.superseded_by || !["ready", "llm", "done"].includes(run.status)) throw new Error(`This run can't be sent (status ${run.status}).`);
   const appMode = (await must(db.from("app_mode").select("mode").single(), "app mode")) as unknown as { mode: string };
-  const mode = effectiveMode(opts.envMode ?? process.env.APP_MODE, appMode.mode, run.mode);
+  // C-039: a live week run from files sends PO sheets, never Zoho drafts. In shadow nothing changes.
+  const effective = effectiveMode(opts.envMode ?? process.env.APP_MODE, appMode.mode, run.mode);
+  const mode: SendResult["mode"] = effective === "live" && run.source === "file" ? "file" : effective;
   const week = run.iso_week;
 
   const rows = await must(db.from("recommendation").select("id, sku_id, line_state, final_qty, inputs").eq("run_id", runId).not("line_state", "is", null), "lines");
@@ -101,6 +104,8 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
   const markSent = async (ls: SendLine[]) =>
     must(db.from("recommendation").update({ line_state: "sent" }).in("id", ls.map((l) => l.recId)).in("line_state", [...SENDABLE]).select("id"), "mark sent");
 
+  if (mode === "file") return sendSheets(db, runId, week, plan.ready, requested, markSent, result);
+
   if (mode === "shadow") {
     // ST-04: no Zoho client exists on this path.
     for (const s of plan.ready) {
@@ -119,7 +124,7 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
 
   const http: ZohoHttp | null = (opts.zoho ?? productionZoho)(db, SEND_CALL_BUDGET);
   if (!http) throw new Error("Zoho isn't configured in this environment, so live drafts can't be created (fail closed).");
-  const writer = ZohoDraftWriter.forMode(mode, http);
+  const writer = ZohoDraftWriter.forMode("live", http);
   const readAt = run.zoho_read?.read_at ?? null;
   const mondayLines = run.zoho_read?.po_lines ?? [];
 
@@ -256,6 +261,57 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
     await must(db.from("draft_po").update({ zoho_po_id: poId, status: "created", last_read_at: now.toISOString() }).eq("id", draftId).eq("status", "creating").select("id"), "draft created");
     await markSent(lines);
     result.sent.push({ supplierId: s.supplierId, reference, lines: lines.length, units: lines.reduce((a, l) => a + l.qty, 0) });
+  }
+  return result;
+}
+
+/**
+ * C-039 file mode, live: one PO sheet per supplier per week (draft_po mode 'file', status 'created' until
+ * procurement confirms it placed). An earlier week's sheet still unplaced holds the supplier, like a pending
+ * Zoho draft (C-023). No Zoho call is made; procurement and the planner are told the sheets are ready.
+ */
+async function sendSheets(
+  db: SupabaseClient,
+  runId: string,
+  week: string,
+  ready: Array<{ supplierId: string; lines: SendLine[] }>,
+  requested: (ls: SendLine[]) => unknown,
+  markSent: (ls: SendLine[]) => Promise<unknown>,
+  result: SendResult,
+): Promise<SendResult> {
+  for (const s of ready) {
+    const reference = draftReference(week, s.supplierId);
+    const earlier = await must(db.from("draft_po").select("reference").eq("supplier_id", s.supplierId).eq("mode", "file").eq("status", "created").neq("iso_week", week), "earlier sheets");
+    if (earlier.length) {
+      const { error } = await db.from("draft_po").insert({ run_id: runId, supplier_id: s.supplierId, iso_week: week, mode: "file", reference, status: "skipped_pending", requested_lines: requested(s.lines) });
+      if (error && error.code !== UNIQUE_VIOLATION) throw new Error(`skipped sheet: ${error.message}`);
+      await must(db.from("recommendation").update({ line_state: "blocked_pending" }).in("id", s.lines.map((l) => l.recId)).in("line_state", [...SENDABLE]).select("id"), "block lines");
+      await db.from("alert").upsert(
+        { kind: "pending_draft", dedupe_key: `pending_draft:${week}:${s.supplierId}`, run_id: runId, payload: { supplier: s.supplierId, message: `Confirm or cancel the earlier PO sheet ${earlier[0]!.reference} for ${s.supplierId} first; this week's lines for it wait until next Monday.` } },
+        { onConflict: "dedupe_key" },
+      );
+      result.skippedPending.push(s.supplierId);
+      continue;
+    }
+    const { error } = await db.from("draft_po").insert({ run_id: runId, supplier_id: s.supplierId, iso_week: week, mode: "file", reference, status: "created", requested_lines: requested(s.lines) });
+    if (error?.code === UNIQUE_VIOLATION) {
+      result.alreadySent.push(s.supplierId);
+      continue;
+    }
+    if (error) throw new Error(`PO sheet: ${error.message}`);
+    await markSent(s.lines);
+    result.sent.push({ supplierId: s.supplierId, reference, lines: s.lines.length, units: s.lines.reduce((a, l) => a + l.qty, 0) });
+  }
+  if (result.sent.length) {
+    await db.from("alert").upsert(
+      {
+        kind: "po_sheets_ready",
+        dedupe_key: `po_sheets_ready:${runId}:${result.sent.map((x) => x.supplierId).join(",")}`,
+        run_id: runId,
+        payload: { message: `Zoho failsafe: PO sheets are ready on the Review desk for ${result.sent.map((x) => x.reference).join(", ")}. Download each, place the order with the supplier, then press Placed.` },
+      },
+      { onConflict: "dedupe_key", ignoreDuplicates: true },
+    );
   }
   return result;
 }

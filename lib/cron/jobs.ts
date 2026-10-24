@@ -100,14 +100,15 @@ export async function noonJob(db: SupabaseClient, now: Date, send: SendOptions =
 /** C-009: a live draft still unissued after draftStaleDays → re-check Zoho, then flag for re-approval and alert. */
 async function staleDrafts(db: SupabaseClient, now: Date, send: SendOptions): Promise<string[]> {
   const { params: rules } = (await must(db.from("rule_version").select("params").eq("is_current", true).single(), "rules")) as unknown as { params: RuleParams };
-  const drafts = await must(db.from("draft_po").select("id, reference, supplier_id, zoho_po_id, status, mode, created_at, needs_reapproval, requested_lines").eq("mode", "live").eq("status", "created"), "drafts");
+  const drafts = await must(db.from("draft_po").select("id, reference, supplier_id, zoho_po_id, status, mode, created_at, needs_reapproval, requested_lines").in("mode", ["live", "file"]).eq("status", "created"), "drafts");
   const candidates = drafts.filter((d) => isStale({ createdAt: d.created_at as string, status: d.status as string, mode: d.mode as string, needsReapproval: d.needs_reapproval as boolean }, now, rules.draftStaleDays));
   if (!candidates.length) return [];
   const http = (send.zoho ?? productionZoho)(db, 60);
   const flagged: string[] = [];
   for (const d of candidates) {
     // The Monday read-back may be days old: check Zoho first so an issued draft isn't flagged.
-    if (http && d.zoho_po_id) {
+    // File-mode sheets (C-039) have nothing in Zoho to check: an unplaced one is simply flagged.
+    if (http && d.mode === "live" && d.zoho_po_id) {
       const rb = readback(await readPo(http, d.zoho_po_id as string), (d.requested_lines ?? []) as RequestedLine[]);
       if (rb.status === "deleted" || !rb.pending) {
         await db.from("draft_po").update(rb.status === "deleted" ? { status: "deleted", last_read_at: now.toISOString() } : { status: rb.status, issued_at: now.toISOString(), last_read_at: now.toISOString(), ...(rb.changed ? { issued_lines: rb.lines } : {}) }).eq("id", d.id).eq("status", "created");
@@ -140,6 +141,7 @@ const SUBJECTS: Record<string, string> = {
   correction_after_send: "Reorder Desk: data corrected after drafts were sent",
   lines_held: "Reorder Desk: lines held because a PO changed in Zoho",
   send_failed: "Reorder Desk: the Tuesday send failed",
+  po_sheets_ready: "Reorder Desk: PO sheets ready (Zoho failsafe)",
   draft_stale: "Reorder Desk: a draft needs re-approval",
   deadline_applied: "Reorder Desk: Tuesday 12:00 rule applied",
   rejection_rate: "Reorder Desk: rejection rate outside the expected range",

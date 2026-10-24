@@ -5,7 +5,7 @@ import { Flash, type SearchParams } from "@/app/settings/ui";
 import { can } from "@/lib/auth/access";
 import { requireScreen } from "@/lib/auth/me";
 import { caseDataMode, userClient } from "@/lib/db/server";
-import { reapprove, retryRun, send } from "./actions";
+import { confirmPlaced, reapprove, retryRun, runFromFiles, send } from "./actions";
 import { Card, units, wks } from "./Card";
 import { loadDesk } from "./data";
 
@@ -55,6 +55,9 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
   const holdList = visible.filter((l) => l.rec.action === "pause" && l.rec.openPoLines.length > 0);
   const holdout = lines.filter((l) => l.rec.holdout);
   const ready = ["ready", "llm", "done"].includes(run.status);
+  // C-039: the failsafe is offered when Zoho blocked the run, or while it is retrying a Zoho outage.
+  const zohoReason = run.error?.reason ?? "";
+  const zohoStuck = zohoReason.startsWith("zoho") && (run.status === "blocked" || ["queued", "readback", "zoho_read", "mapping"].includes(run.status));
 
   return (
     <Shell session={session} current="review">
@@ -72,6 +75,31 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
           <input type="hidden" name="run" value={run.id} />
           <input name="reason" required placeholder="What was fixed (required)" aria-label="What was fixed" style={{ flex: 1, minWidth: 240 }} />
           <button className="primary">Retry run</button>
+        </form>
+      )}
+      {zohoStuck && can(session, "owner.setMode") && (
+        <form action={runFromFiles} className="card" style={{ display: "grid", gap: 10 }}>
+          <h2 style={{ marginTop: 0 }}>Zoho failsafe: run this week from files</h2>
+          <p className="small muted">
+            Use only when Zoho can&apos;t be read this week. Procurement gives you the open purchase orders (export from Zoho, or their own list) with columns{" "}
+            <code>po_number, supplier_id, sku_id, po_date, ordered_units, received_units, status</code> (optional <code>expected_date, reference</code>), and if any
+            goods arrived since Monday, a receipts file with <code>po_number, sku_id, receipt_date, received_units</code>. In live mode, Send then makes a PO sheet per
+            supplier instead of Zoho drafts. Logged with your reason.
+          </p>
+          <input type="hidden" name="run" value={run.id} />
+          <label>
+            Open purchase orders (CSV or XLSX)
+            <input type="file" name="open_pos" accept=".csv,.xlsx" required />
+          </label>
+          <label>
+            Receipts since Monday (optional)
+            <input type="file" name="receipts" accept=".csv,.xlsx" />
+          </label>
+          <label className="inline">
+            <input type="checkbox" name="certified" /> Procurement confirmed this list is complete as of Monday 00:00 IST
+          </label>
+          <input name="reason" required placeholder="Why Zoho can't be used this week (required)" aria-label="Why Zoho can't be used" />
+          <button className="primary">Run from files</button>
         </form>
       )}
       {!ready && run.status !== "blocked" && (
@@ -171,10 +199,33 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
                         <td>{d.reference}</td>
                         <td>{desk.supplierNames[d.supplierId] ?? d.supplierId}</td>
                         <td>{d.mode}</td>
-                        <td>{d.status === "skipped_pending" ? "Skipped: earlier draft unissued" : d.status}</td>
+                        <td>
+                          {d.mode === "file"
+                            ? d.status === "created"
+                              ? "Sheet sent, not placed yet"
+                              : d.status === "issued"
+                                ? "Placed"
+                                : d.status === "skipped_pending"
+                                  ? "Skipped: earlier sheet not placed"
+                                  : d.status
+                            : d.status === "skipped_pending"
+                              ? "Skipped: earlier draft unissued"
+                              : d.status}
+                        </td>
                         <td>{units(d.units)}</td>
                         <td>{IST(d.createdAt)}</td>
                         <td>
+                          {d.mode === "file" && (
+                            <span className="row">
+                              <a href={`/review/sheet?draft=${d.id}`}>Download sheet</a>
+                              {d.status === "created" && can(session, "sheet.confirm") && (
+                                <form action={confirmPlaced}>
+                                  <input type="hidden" name="draft" value={d.id} />
+                                  <button>Placed</button>
+                                </form>
+                              )}
+                            </span>
+                          )}
                           {d.needsReapproval && canDecide ? (
                             <form action={reapprove} className="row">
                               <input type="hidden" name="draft" value={d.id} />

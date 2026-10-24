@@ -7,7 +7,9 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { requireAction } from "@/lib/auth/me";
 import { caseDataMode, serviceClient, userClient } from "@/lib/db/server";
+import { startFileMode } from "@/lib/filemode/server";
 import { processRun } from "@/lib/run/worker";
+import { parseFile } from "@/lib/upload/parse";
 import { sendToProcurement } from "@/lib/send/send";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -42,7 +44,7 @@ export async function send(form: FormData) {
   try {
     const r = await sendToProcurement(serviceClient(), runId);
     message = [
-      r.sent.length ? `${r.mode === "shadow" ? "Recorded (shadow mode, nothing sent to Zoho)" : "Draft created in Zoho"} for ${r.sent.map((s) => s.supplierId).join(", ")}.` : "No supplier was ready to send.",
+      r.sent.length ? `${r.mode === "shadow" ? "Recorded (shadow mode, nothing sent to Zoho)" : r.mode === "file" ? "PO sheet ready (Zoho failsafe)" : "Draft created in Zoho"} for ${r.sent.map((s) => s.supplierId).join(", ")}.` : "No supplier was ready to send.",
       r.alreadySent.length ? `Already sent this week (unchanged): ${r.alreadySent.join(", ")}.` : "",
       r.waiting.length ? `Waiting on cards: ${r.waiting.map((w) => `${w.supplierId} (${w.queued})`).join(", ")}.` : "",
       r.skippedPending.length ? `Held by an unissued earlier draft: ${r.skippedPending.join(", ")}.` : "",
@@ -83,4 +85,38 @@ export async function retryRun(form: FormData) {
   }
   revalidatePath("/review");
   back("saved", data === "queued" ? "Run restarted from the beginning. Reload in a minute." : "Run unblocked; the queue and decisions are as they were.");
+}
+
+/** C-039 Zoho failsafe: Deepa runs this week from the open-PO file procurement gave her. */
+export async function runFromFiles(form: FormData) {
+  const session = await requireAction("owner.setMode");
+  const runId = str(form, "run");
+  const openPos = form.get("open_pos");
+  const receipts = form.get("receipts");
+  if (!(openPos instanceof File) || openPos.size === 0) back("error", "Choose the open-PO file.");
+  const parse = async (f: File) => parseFile(f.name, new Uint8Array(await f.arrayBuffer()));
+  const result = await startFileMode(await userClient(), {
+    runId,
+    openPos: await parse(openPos as File),
+    receipts: receipts instanceof File && receipts.size > 0 ? await parse(receipts) : null,
+    reason: str(form, "reason"),
+    certified: form.get("certified") === "on",
+    uploadedBy: session.name,
+  });
+  if (!result.ok) back("error", result.errors.slice(0, 5).join(" · "));
+  after(async () => {
+    await processRun(serviceClient(), runId, { caseDataMode: caseDataMode() }).catch((e) => console.error(`run ${runId} failed; the cron will retry`, e));
+  });
+  revalidatePath("/review");
+  const s = result.ok ? result.summary : null;
+  back("saved", `This week runs from the file: ${s?.openLines} open PO lines, ${s?.openUnits} units on order. ${result.ok ? result.warnings.join(" ") : ""} Reload in a minute for the queue.`);
+}
+
+/** C-039: procurement (or the planner) confirms a PO sheet was placed with the supplier. */
+export async function confirmPlaced(form: FormData) {
+  await requireAction("sheet.confirm");
+  const { error } = await (await userClient()).rpc("confirm_placed", { p_draft_id: str(form, "draft") });
+  if (error) back("error", error.message);
+  revalidatePath("/review");
+  back("saved", "Marked as placed.");
 }

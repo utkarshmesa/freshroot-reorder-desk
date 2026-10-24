@@ -43,6 +43,9 @@ const LEASE_SECONDS = 420;
 
 type ZohoReadDoc = {
   skipped?: "case_data";
+  /** C-039: the position came from an uploaded open-PO file, not the Zoho API. */
+  source?: "file";
+  file?: { names: string[]; uploadedBy: string; summary: { openLines: number; openUnits: number; pos: number } };
   read_at?: string;
   calls?: number;
   po_lines?: PoLine[];
@@ -111,6 +114,13 @@ export function recFromRow(row: Record<string, unknown>): Recommendation {
     daysToStockout: row.days_to_stockout === null ? null : Number(row.days_to_stockout),
     spotCheck: row.spot_check,
   } as Recommendation;
+}
+
+/** C-039: say on the desk that this week's position came from a file, and what the file held. */
+function fileNote(doc: ZohoReadDoc): string[] {
+  if (doc.source !== "file" || !doc.file) return [];
+  const f = doc.file;
+  return [`Zoho failsafe: open POs from ${f.names.join(" + ")} (uploaded by ${f.uploadedBy}): ${f.summary.openLines} open lines, ${f.summary.openUnits} units on order across ${f.summary.pos} POs.`];
 }
 
 /** Calls at most `limit` at a time (ARCHITECTURE §6: concurrency 5). */
@@ -311,7 +321,7 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
       await must(db.from("recommendation").delete().eq("run_id", runId).select("id"), "clear recommendations");
       await must(db.from("recommendation").insert(out.recommendations.map((r) => toRow(runId, r, pending, names))).select("id"), "save recommendations");
       await settleAfterSave(db, runId, run.iso_week);
-      status = (await advance({ status: "ready", ready_at: now, notes: out.notes, error: null })) ? "ready" : "superseded";
+      status = (await advance({ status: "ready", ready_at: now, notes: fileNote(doc).concat(out.notes), error: null })) ? "ready" : "superseded";
       for (const year of out.missingFestivalYears) {
         await db.from("alert").upsert(
           { kind: "festival_missing", dedupe_key: `festival_missing:${year}`, run_id: runId, payload: { year, message: `No festival dates are entered for ${year}, and this week's orders reach into it. Add them in Settings → Festivals & holds.` } },

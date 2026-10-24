@@ -23,7 +23,7 @@ export function deadlineDue(run: { isoWeek: IsoWeek; readyAt: string | null }, n
 }
 
 export function isStale(d: { createdAt: string; status: string; mode: string; needsReapproval: boolean }, now: Date, staleDays: number): boolean {
-  return d.mode === "live" && d.status === "created" && !d.needsReapproval && now.getTime() - Date.parse(d.createdAt) > staleDays * DAY_MS;
+  return (d.mode === "live" || d.mode === "file") && d.status === "created" && !d.needsReapproval && now.getTime() - Date.parse(d.createdAt) > staleDays * DAY_MS;
 }
 
 /** Unit-weighted share of decided units that were rejected; units = the engine's quantity on the card. */
@@ -64,6 +64,7 @@ export function recipientsFor(kind: string, users: Recipient[], day: string): st
     correction_after_send: [has("procurement"), has("planner")],
     lines_held: [has("planner")],
     send_failed: [has("planner"), has("admin")],
+    po_sheets_ready: [has("procurement"), has("planner")],
     draft_stale: [has("procurement"), has("planner")],
     deadline_applied: [owner],
     rejection_rate: [owner],

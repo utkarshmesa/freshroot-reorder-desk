@@ -13,7 +13,8 @@ export type Action =
   | "owner.setMode"
   | "owner.setHoldout"
   | "review.decide"
-  | "run.retry";
+  | "run.retry"
+  | "sheet.confirm";
 
 export type Me = { roles: Role[]; isOwner: boolean };
 
@@ -36,6 +37,7 @@ const ACTIONS: Record<Action, Role[]> = {
   "owner.setHoldout": [],
   "review.decide": ["planner"],
   "run.retry": ["admin"],
+  "sheet.confirm": ["procurement", "planner"],
 };
 
 const has = (me: Me, roles: Role[]) => me.roles.some((r) => roles.includes(r));

@@ -18,7 +18,7 @@ export type DeskLine = {
 };
 export type DeskDraft = { id: string; supplierId: string; reference: string; mode: string; status: string; createdAt: string; issuedAt: string | null; needsReapproval: boolean; units: number };
 export type Desk = {
-  run: { id: string; isoWeek: string; status: string; mode: string; error: { reason?: string; message?: string } | null; readAt: string | null; deadline: Date; deadlineAppliedAt: string | null; notes: string[] };
+  run: { id: string; isoWeek: string; status: string; mode: string; source: string; sendMode: string; error: { reason?: string; message?: string } | null; readAt: string | null; deadline: Date; deadlineAppliedAt: string | null; notes: string[] };
   lines: DeskLine[];
   drafts: DeskDraft[];
   reasonCodes: Array<{ code: string; label: string }>;
@@ -30,7 +30,7 @@ export async function loadDesk(): Promise<Desk | null> {
   const db = await userClient();
   const { data: runs } = await db
     .from("run")
-    .select("id, iso_week, status, mode, error, zoho_read, deadline_applied_at, notes, rule_version_id")
+    .select("id, iso_week, status, mode, source, error, zoho_read, deadline_applied_at, notes, rule_version_id")
     .is("superseded_by", null)
     .order("iso_week", { ascending: false })
     .order("created_at", { ascending: false })
@@ -64,6 +64,9 @@ export async function loadDesk(): Promise<Desk | null> {
     .filter((l) => l.lineState)
     .map((l) => ({ recId: l.id, skuId: l.rec.skuId, supplierId: l.rec.supplierId, state: l.lineState as SendLine["state"], qty: l.finalQty ?? 0 }));
   const runMode = r.mode as string;
+  // The mode a Send would write in, exactly as the send decides it (live + file source = PO sheets, C-039).
+  const effective = effectiveMode(process.env.APP_MODE, (appMode.data?.mode as string) ?? "shadow", runMode);
+  const draftMode = effective === "live" && r.source === "file" ? "file" : effective;
   const params = (rules.data?.params ?? null) as RuleParams | null;
 
   return {
@@ -72,6 +75,8 @@ export async function loadDesk(): Promise<Desk | null> {
       isoWeek: r.iso_week as string,
       status: r.status as string,
       mode: runMode,
+      source: (r.source as string) ?? "zoho",
+      sendMode: draftMode,
       error: (r.error as Desk["run"]["error"]) ?? null,
       readAt: ((r.zoho_read as { read_at?: string } | null)?.read_at ?? null) as string | null,
       deadline: deadlineFor(r.iso_week as string, params?.deadline ?? { weekday: "TUE", timeIST: "12:00" }),
@@ -97,7 +102,7 @@ export async function loadDesk(): Promise<Desk | null> {
       sendLines,
       new Set(
         (drafts.data ?? [])
-          .filter((d) => d.status !== "creating" && d.mode === effectiveMode(process.env.APP_MODE, (appMode.data?.mode as string) ?? "shadow", runMode))
+          .filter((d) => d.status !== "creating" && d.mode === draftMode)
           .map((d) => d.supplier_id as string),
       ),
     ),

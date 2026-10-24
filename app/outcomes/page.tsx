@@ -22,7 +22,7 @@ export default async function Page() {
   const [brief, recs, drafts, decisions, versions, uploads, rules] = await Promise.all([
     latest ? db.from("brief").select("text, source").eq("run_id", latest.id).maybeSingle() : Promise.resolve({ data: null }),
     runIds.length ? db.from("recommendation").select("id, run_id, sku_id, action, qty, holdout, spot_check, inputs").in("run_id", runIds) : Promise.resolve({ data: [] }),
-    db.from("draft_po").select("reference, run_id, mode, status, created_at, issued_at").eq("mode", "live").order("created_at", { ascending: false }).limit(200),
+    db.from("draft_po").select("reference, run_id, mode, status, created_at, issued_at").in("mode", ["live", "file"]).order("created_at", { ascending: false }).limit(200),
     db.from("decision").select("status, final_qty, reason_code, note, at, recommendation(sku_id, qty, spot_check, run_id)").order("at", { ascending: false }).limit(200),
     db.from("rule_version").select("id, reason, is_current, created_at").order("id", { ascending: false }),
     db.from("upload").select("id, committed_at").eq("status", "committed"),
@@ -173,7 +173,7 @@ export default async function Page() {
       )}
 
       <h2>Order speed</h2>
-      <p className="small muted">Monday upload to draft issued in Zoho, in working days. Target: within 2. Live drafts only.</p>
+      <p className="small muted">Monday upload to draft issued in Zoho (or, in a Zoho-failsafe week, the PO sheet marked placed), in working days. Target: within 2. Live weeks only.</p>
       <p>
         {issued.length ? `${withinSla} of ${issued.length} issued drafts within 2 working days.` : "No live drafts issued yet."}{" "}
         {speed.filter((s) => s.status === "created").length ? `${speed.filter((s) => s.status === "created").length} still waiting to be issued.` : ""}
