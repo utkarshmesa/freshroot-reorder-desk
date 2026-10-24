@@ -21,6 +21,7 @@ import { productionZoho, type ZohoFactory } from "@/lib/zoho/client";
 import { ZohoApiError, ZohoAuthError, ZohoBudgetError, ZohoDataError, type ZohoHttp } from "@/lib/zoho/http";
 import { mappingCheck, readback, type RequestedLine } from "@/lib/zoho/map";
 import { readForRun, readPo } from "@/lib/zoho/reader";
+import { settleAfterSave } from "./carryover";
 import { loadEngineInput, type RunRow } from "./load";
 
 export type ProcessResult = { runId: string; status: string; claimed: boolean; error?: string };
@@ -196,7 +197,7 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
     // 1. Read back earlier system drafts by Zoho id (§8.3, D11): issued / edited / deleted, logged once.
     if (status === "readback") {
       const drafts = await must(
-        db.from("draft_po").select("id, supplier_id, reference, zoho_po_id, status, requested_lines, issued_lines").eq("mode", "live").eq("status", "created").not("zoho_po_id", "is", null),
+        db.from("draft_po").select("id, supplier_id, iso_week, reference, zoho_po_id, status, requested_lines, issued_lines").eq("mode", "live").eq("status", "created").not("zoho_po_id", "is", null),
         "drafts",
       );
       const pending = new Set<string>();
@@ -208,7 +209,8 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
         if (rb.status === "deleted") patch.status = "deleted";
         else {
           if (rb.changed) patch.issued_lines = rb.lines;
-          if (rb.pending) pending.add(d.supplier_id as string);
+          // This week's own draft (a same-week correction) isn't an "earlier" pending draft (stress test F4).
+          if (rb.pending && d.iso_week !== run.iso_week) pending.add(d.supplier_id as string);
           else {
             patch.status = rb.status;
             patch.issued_at = now; // first seen issued at this read-back
@@ -301,6 +303,7 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
       const names = await distributorNames(db, opts.caseDataMode);
       await must(db.from("recommendation").delete().eq("run_id", runId).select("id"), "clear recommendations");
       await must(db.from("recommendation").insert(out.recommendations.map((r) => toRow(runId, r, pending, names))).select("id"), "save recommendations");
+      await settleAfterSave(db, runId, run.iso_week);
       status = (await advance({ status: "ready", ready_at: now, notes: out.notes, error: null })) ? "ready" : "superseded";
       for (const year of out.missingFestivalYears) {
         await db.from("alert").upsert(

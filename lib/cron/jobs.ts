@@ -67,6 +67,8 @@ export async function noonJob(db: SupabaseClient, now: Date, send: SendOptions =
         } catch (e) {
           sendNote = `send failed: ${e instanceof Error ? e.message : String(e)}`;
           out.errors.push(sendNote);
+          // Stress test F11: the planner must know approved orders didn't go, not only IT.
+          await raiseAlert(db, "send_failed", `send_failed:${run.id}:${istDay(now)}`, { week: run.iso_week, message: `The 12:00 send for ${run.iso_week} failed (${sendNote}). Approved orders have not reached procurement yet; IT is on it. Press Send on the desk once it is fixed.` }, run.id);
         }
         if (rows.length) {
           await raiseAlert(db, "deadline_applied", `deadline:${run.id}`, { week: run.iso_week, deadlineAuto, rolled, send: sendNote }, run.id);
@@ -134,6 +136,10 @@ const SUBJECTS: Record<string, string> = {
   draft_unconfirmed: "Reorder Desk: a draft request isn't visible in Zoho yet",
   cron_failed: "Reorder Desk: a scheduled job had errors",
   festival_missing: "Reorder Desk: festival dates missing for next year",
+  supplier_blocked: "Reorder Desk: a supplier is still held by an unissued draft",
+  correction_after_send: "Reorder Desk: data corrected after drafts were sent",
+  lines_held: "Reorder Desk: lines held because a PO changed in Zoho",
+  send_failed: "Reorder Desk: the Tuesday send failed",
   draft_stale: "Reorder Desk: a draft needs re-approval",
   deadline_applied: "Reorder Desk: Tuesday 12:00 rule applied",
   rejection_rate: "Reorder Desk: rejection rate outside the expected range",

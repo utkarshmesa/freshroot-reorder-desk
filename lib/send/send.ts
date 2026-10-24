@@ -4,6 +4,7 @@ import "server-only";
 // Live mode, per supplier: pending-draft block (C-023) → changed-PO hold (C-025) → "creating" row →
 // adopt by reference or create → read back (must be a draft, ZO-14) → created.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PoLine } from "@/lib/engine/types";
 import { productionZoho, type ZohoFactory } from "@/lib/zoho/client";
 import type { ZohoHttp } from "@/lib/zoho/http";
 import { poStatus } from "@/lib/zoho/map";
@@ -69,7 +70,7 @@ export async function sendToProcurement(db: SupabaseClient, runId: string, opts:
 async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promise<SendResult> {
   const now = opts.now ?? new Date();
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const run = (await must(db.from("run").select("id, iso_week, mode, status, superseded_by, zoho_read").eq("id", runId).single(), "run")) as unknown as { iso_week: string; mode: string; status: string; superseded_by: string | null; zoho_read: { read_at?: string } | null };
+  const run = (await must(db.from("run").select("id, iso_week, mode, status, superseded_by, zoho_read").eq("id", runId).single(), "run")) as unknown as { iso_week: string; mode: string; status: string; superseded_by: string | null; zoho_read: { read_at?: string; po_lines?: PoLine[] } | null };
   if (run.superseded_by || !["ready", "llm", "done"].includes(run.status)) throw new Error(`This run can't be sent (status ${run.status}).`);
   const appMode = (await must(db.from("app_mode").select("mode").single(), "app mode")) as unknown as { mode: string };
   const mode = effectiveMode(opts.envMode ?? process.env.APP_MODE, appMode.mode, run.mode);
@@ -120,6 +121,7 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
   if (!http) throw new Error("Zoho isn't configured in this environment, so live drafts can't be created (fail closed).");
   const writer = ZohoDraftWriter.forMode(mode, http);
   const readAt = run.zoho_read?.read_at ?? null;
+  const mondayLines = run.zoho_read?.po_lines ?? [];
 
   for (const s of plan.ready) {
     const reference = draftReference(week, s.supplierId);
@@ -167,14 +169,33 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
       });
       const touched = new Set<string>();
       const skuOfItem = new Map([...itemOf.entries()].filter(([, v]) => v).map(([k, v]) => [v as string, k]));
+      // Stress test F3: only a change that moves the position holds a line: a new or newly issued PO, a
+      // changed ordered quantity, or a cancelled/closed/deleted one. A receipt alone (received qty) doesn't.
+      const monday = new Map<string, number>();
+      for (const l of mondayLines) monday.set(`${l.poId}|${l.skuId}`, (monday.get(`${l.poId}|${l.skuId}`) ?? 0) + l.ordered);
       for (const p of changed) {
         const po = await readPo(http, p.purchaseorder_id);
-        for (const l of po?.line_items ?? []) if (skuOfItem.has(l.item_id)) touched.add(skuOfItem.get(l.item_id)!);
+        const st = po ? poStatus(po.status) : "cancelled";
+        const gone = st === "cancelled" || st === "closed";
+        const now = new Map<string, number>();
+        for (const l of po?.line_items ?? []) {
+          const sku = skuOfItem.get(l.item_id);
+          if (sku) now.set(sku, (now.get(sku) ?? 0) + Number(l.quantity));
+        }
+        const skus = new Set([...now.keys(), ...mondayLines.filter((l) => l.poId === p.purchaseorder_id).map((l) => l.skuId)]);
+        for (const sku of skus) {
+          const was = monday.get(`${p.purchaseorder_id}|${sku}`);
+          if (gone ? was !== undefined : was === undefined || was !== (now.get(sku) ?? 0)) touched.add(sku);
+        }
       }
       const held = lines.filter((l) => touched.has(l.skuId));
       if (held.length) {
         await must(db.from("recommendation").update({ line_state: "held_changed" }).in("id", held.map((l) => l.recId)).in("line_state", [...SENDABLE]).select("id"), "hold lines");
         result.held.push({ supplierId: s.supplierId, skuIds: held.map((l) => l.skuId) });
+        await db.from("alert").upsert(
+          { kind: "lines_held", dedupe_key: `lines_held:${week}:${s.supplierId}`, run_id: runId, payload: { supplier: s.supplierId, skus: held.map((l) => l.skuId), message: `A PO for ${held.map((l) => l.skuId).join(", ")} (${s.supplierId}) was created or changed in Zoho since Monday, so those lines were held back from this week's draft and come back next Monday.` } },
+          { onConflict: "dedupe_key", ignoreDuplicates: true },
+        );
         lines = lines.filter((l) => !touched.has(l.skuId));
       }
     }

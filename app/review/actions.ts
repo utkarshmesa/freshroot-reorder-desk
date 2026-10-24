@@ -43,6 +43,7 @@ export async function send(form: FormData) {
     const r = await sendToProcurement(serviceClient(), runId);
     message = [
       r.sent.length ? `${r.mode === "shadow" ? "Recorded (shadow mode, nothing sent to Zoho)" : "Draft created in Zoho"} for ${r.sent.map((s) => s.supplierId).join(", ")}.` : "No supplier was ready to send.",
+      r.alreadySent.length ? `Already sent this week (unchanged): ${r.alreadySent.join(", ")}.` : "",
       r.waiting.length ? `Waiting on cards: ${r.waiting.map((w) => `${w.supplierId} (${w.queued})`).join(", ")}.` : "",
       r.skippedPending.length ? `Held by an unissued earlier draft: ${r.skippedPending.join(", ")}.` : "",
       r.held.length ? `Lines held because a PO changed in Zoho since Monday: ${r.held.flatMap((h) => h.skuIds).join(", ")}.` : "",
