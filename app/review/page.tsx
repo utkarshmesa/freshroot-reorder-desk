@@ -8,6 +8,7 @@ import { caseDataMode, userClient } from "@/lib/db/server";
 import { confirmPlaced, reapprove, retryRun, runFromFiles, send } from "./actions";
 import { Card, units, wks } from "./Card";
 import { loadDesk } from "./data";
+import { kickPendingWork } from "@/lib/run/kick";
 
 export const maxDuration = 300; // Send can make Zoho calls (live mode)
 
@@ -28,6 +29,7 @@ const RUN_STEP: Record<string, string> = { queued: "waiting to start", readback:
 
 export default async function Page({ searchParams }: { searchParams: SearchParams }) {
   const session = await requireScreen("review");
+  await kickPendingWork(); // free-plan safety net (C-042)
   const canDecide = can(session, "review.decide");
   const desk = await loadDesk();
 

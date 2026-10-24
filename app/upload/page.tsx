@@ -2,12 +2,14 @@ import { Shell } from "@/components/Shell";
 import { requireScreen } from "@/lib/auth/me";
 import { caseDataMode, userClient } from "@/lib/db/server";
 import { UploadForm } from "./UploadForm";
+import { kickPendingWork } from "@/lib/run/kick";
 
 const ist = (ts: string, dateOnly = false) =>
   dateOnly ? new Date(ts).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }) : new Date(ts).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
 export default async function UploadPage() {
   const session = await requireScreen("upload");
+  await kickPendingWork(); // free-plan safety net (C-042)
   const db = await userClient();
   const { data: history } = await db
     .from("upload")

@@ -74,7 +74,9 @@
 | S5 | **Claude unavailable or wrong.** | Medium | Low | Low | Claude never sets numbers; every number is checked; template fallback; own time budget, never blocks a run (M5 review #2); `llm_fallback` alert. | IT admin | Mitigated |
 | S6 | **Alert email not configured**, so nobody hears about a block. | Medium | High | High | Alerts are stored even without Resend. The deploy checklist requires a test alert before go-live. | IT admin | Open (until checked) |
 | S7 | **Database loss.** | Low | High | Medium | Supabase backups (check the plan and whether point-in-time recovery is enabled); RUNBOOK §10 restore and reconcile; Zoho remains the record of POs. | IT admin | Open (confirm backups) |
-| S8 | **Platform limits**: Hobby cron would break the deadlines. | Low | High | Medium | Vercel Pro approved (C-022). The deploy checklist checks the crons are registered. | IT admin | Mitigated |
+| S8 | **Platform limits on free plans** (C-042): daily cron fired within the hour; no 5-minute safety net. | Medium | Medium | Medium | Noon job scheduled in the 12:30–13:29 IST window (always after the deadline); runs and alerts also resume on page opens and after each upload. Pro restores exact timing. | IT admin | Mitigated |
+| S10 | **Vercel Hobby is for non-commercial use.** | High | Medium | High | Fine for the MESA case study and a demo. Before Freshroots relies on it, move to Pro (C-022). | Deepa | Accepted for the case study |
+| S11 | **Supabase Free: no backups, and the project pauses after a week of inactivity.** | Medium | High | High | Weekly manual dump (RUNBOOK §10); weekly uploads and the daily cron keep it active; Supabase emails before pausing. | IT admin | Mitigated |
 | S9 | **Run volume at full rollout** (400 SKUs): open-PO reads approach the 300-call budget. | Low | Medium | Low | Budget enforced (`zoho_budget` block); incremental PO cache is the documented next step (ARCHITECTURE §12). | AI build team | Accepted |
 
 ## Changes to this register

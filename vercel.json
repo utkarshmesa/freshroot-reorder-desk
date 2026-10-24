@@ -2,15 +2,15 @@
   "crons": [
     {
       "path": "/api/run",
-      "schedule": "*/5 * * * *"
+      "schedule": "30 3 * * *"
     },
     {
       "path": "/api/cron/noon",
-      "schedule": "30 6 * * *"
+      "schedule": "0 7 * * *"
     },
     {
       "path": "/api/cron/upload-check",
-      "schedule": "30 4 * * 1"
+      "schedule": "0 5 * * 1"
     }
   ]
 }

@@ -274,3 +274,21 @@ The replay already reports all three numbers, and prints the verdict under both 
 | 10 | `use_file_mode` trusted a document sent from the browser | Callable only by the server (service role), after it checks the owner and parses the files itself |
 | 11 | Outage retries counted against a later, unrelated failure | Attempts reset once Zoho answers |
 | 12 | An approval-workflow `rejected` PO status was unknown; the CSV formula guard missed tab and CR | `rejected` maps to cancelled (to confirm in the test org); guard widened |
+
+## C-042: Deploy on free plans (supersedes C-022's Vercel Pro)
+
+**Status: Decided 24 Oct 2026 (Utkarsh: "need it deploy in free plans"). Built.** Affects C-022, ARCHITECTURE §4 (cron safety net), DEPLOY_CHECKLIST, RUNBOOK.
+
+| Service | Free plan limit (checked 24 Oct 2026) | What we changed |
+|---|---|---|
+| Vercel Hobby | Cron at most once a day per job, fired anywhere within the scheduled hour; functions up to 300 s; **non-commercial use only** | Noon job scheduled `0 7 * * *` (12:30–13:29 IST, always after the Tue 12:00 deadline); Monday upload check `0 5 * * 1` (10:30–11:29 IST); run safety net daily `30 3 * * *`. The 5-minute safety net is replaced by resuming unfinished runs and sending pending alerts whenever someone opens Upload or the Review desk, and by sending alerts right after a committed upload's run |
+| Supabase Free | Paused after a week without enough database activity; **no automatic backups**; 500 MB database | Weekly uploads and the daily cron keep it active. IT takes a weekly backup by hand (RUNBOOK §10) |
+| Resend Free | 100 emails a day, 3,000 a month; verified domain needed | Enough for alerts. Without a verified domain, alerts stay stored and unsent |
+| Anthropic | No free plan | Leave `ANTHROPIC_API_KEY` unset: every card and the brief use the rule text (the app is built to work this way) |
+| Zoho | Not available | Run each week with the Zoho failsafe (C-039) |
+
+**What this costs in behaviour:**
+- The Tuesday rule fires between 12:30 and 13:29 IST instead of at 12:00. The decision deadline itself is unchanged.
+- A Zoho outage retries when someone opens the desk, not every 5 minutes.
+- Alert emails go out after a run, on page opens or once a day, not within 5 minutes.
+- Vercel's Hobby terms are for non-commercial use. Fine for the MESA case study and a demo; Freshroots' real use needs Pro (C-022 stands for that).

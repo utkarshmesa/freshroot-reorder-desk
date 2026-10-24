@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { requireAction } from "@/lib/auth/me";
 import { caseDataMode, serviceClient, userClient } from "@/lib/db/server";
+import { deliverAlerts, resendSender } from "@/lib/cron/jobs";
 import { processRun } from "@/lib/run/worker";
 import { isOwnUploadPath } from "@/lib/upload/paths";
 import { commitUpload, confirmUpload, stageUpload, toInputFile, type CommitResult } from "@/lib/upload/server";
@@ -46,6 +47,8 @@ export async function confirmAndCommit(uploadId: string, confirmedCodes: string[
       const runId = result.run_id;
       after(async () => {
         await processRun(serviceClient(), runId, { caseDataMode: caseDataMode() }).catch((e) => console.error(`run ${runId} failed; the cron will retry`, e));
+        // Free plan (C-042): alerts raised by the run go out now, not at the next daily cron.
+        await deliverAlerts(serviceClient(), resendSender(), new Date()).catch((e) => console.error("alert delivery failed", e));
       });
     }
     revalidatePath("/upload");

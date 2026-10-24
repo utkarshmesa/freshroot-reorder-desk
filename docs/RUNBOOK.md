@@ -22,7 +22,7 @@ The everyday "what do I do" for Priya, Raghav and procurement is in the app (**H
 | Alerts (sent and pending) | Supabase → Table editor → `alert` (newest first) |
 | Every change to rules, SKUs, modes, re-runs | Supabase → `change_log`; rules also in App → Settings → Rules → Versions |
 | Server logs | Vercel → Project → Logs (filter by `/api/run`, `/api/cron/noon`) |
-| Scheduled jobs | `vercel.json`: `/api/run` every 5 min; `/api/cron/noon` daily 06:30 UTC (12:00 IST); `/api/cron/upload-check` Mon 04:30 UTC (10:00 IST) |
+| Scheduled jobs | `vercel.json` (free plan, C-042): `/api/run` daily in the 03:00 UTC hour; `/api/cron/noon` daily in the 07:00 UTC hour (12:30–13:29 IST); `/api/cron/upload-check` Monday in the 05:00 UTC hour. Unfinished runs and pending alerts are also processed whenever someone opens Upload or the Review desk |
 | Secrets | Vercel → Settings → Environment Variables (Production). Never in the repo, chat or email |
 
 ### Alerts and what they mean
@@ -311,6 +311,17 @@ On paid Supabase plans, Supabase takes daily backups; point-in-time recovery is 
    - `select count(*) from public.alert where sent_at is null;` isn't growing.
 
 **Escalation:** Supabase support for restore failures.
+
+**Free plan (C-042): there are no automatic backups.** Every Monday after the run, IT takes one from a trusted machine with the project linked (`npx supabase link --project-ref …`) and keeps it somewhere safe outside Supabase:
+
+```bash
+npx supabase db dump --linked --data-only -f freshroots-data-YYYY-MM-DD.sql
+```
+
+To restore onto a fresh free project:
+1. `npx supabase db push` (schema).
+2. Run the data file in the SQL editor, or with `psql`.
+3. Reconcile as in step 4 above.
 
 ---
 

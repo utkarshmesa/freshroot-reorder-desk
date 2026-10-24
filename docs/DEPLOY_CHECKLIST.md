@@ -3,6 +3,15 @@
 **Release:** Freshroots Reorder Desk v1 (milestones 1–6) · **Target:** Vercel (Pro) + Supabase (hosted) · **Starting state:** **shadow mode**
 **Deployer:** IT admin, with the AI build team · **Date:** ________ · Re-use this list for later deploys; sections marked *(first deploy)* are one-off.
 
+> **Free plans (C-042).** This deploy can run entirely on free tiers:
+> - **Vercel Hobby:** daily crons, already set in `vercel.json`. Hobby is for non-commercial use: right for the case study and a demo; Freshroots' production needs Pro.
+> - **Supabase Free:** no automatic backups, so take a weekly dump (RUNBOOK §10).
+> - **Resend Free:** 100 emails a day.
+> - **No Anthropic key:** the app uses rule text throughout.
+> - **No Zoho:** each week runs from files, the failsafe (RUNBOOK §12).
+>
+> Where this checklist says "Vercel Pro" or "paid plan", the free equivalent is fine for this deploy.
+
 Shadow mode is the only safe starting state: no drafts reach Zoho until Deepa switches (RUNBOOK §7). The first deploy should also use a **read-only Zoho token**, so a write is impossible even by mistake. Swap in the create-scoped token only at go-live, after the Zoho scope check (risk K1).
 
 ---
@@ -94,9 +103,9 @@ There is no CI yet, so run these locally on the commit being deployed. All must 
 
    | Path | Schedule (UTC) | IST |
    |---|---|---|
-   | `/api/run` | `*/5 * * * *` | every 5 min |
-   | `/api/cron/noon` | `30 6 * * *` | 12:00 daily |
-   | `/api/cron/upload-check` | `30 4 * * 1` | Mon 10:00 |
+   | `/api/run` | `30 3 * * *` | daily, 09:00–09:59 (safety net; pages also resume runs) |
+   | `/api/cron/noon` | `0 7 * * *` | daily, 12:30–13:29 (Hobby fires within the hour) |
+   | `/api/cron/upload-check` | `0 5 * * 1` | Mon 10:30–11:29 |
 
 ---
 

@@ -172,7 +172,7 @@ A run is a **persisted state machine**, so a Vercel timeout or a Zoho outage res
 - Each step is idempotent and claimed with the `run.locked_until` lease (§3.3).
 - The worker route processes steps until it's done or has used ~80% of its time budget (`maxDuration` 300 s), then checkpoints.
 - The commit Server Action starts the worker with Next.js `after()`. Postgres can't call HTTP without `pg_net`, so the database doesn't trigger it.
-- Vercel Cron calls the worker every 5 min while a run is non-terminal, as a safety net. **This needs Vercel Pro:** Hobby cron runs at most once a day and isn't minute-precise, which would also break the Mon 10:00 and Tue 12:00 deadlines.
+- Vercel Cron calls the worker every 5 min while a run is non-terminal, as a safety net. **On the free plan (C-042)** it runs once a day, and opening Upload or the Review desk resumes unfinished runs and sends pending alerts instead. **This needs Vercel Pro:** Hobby cron runs at most once a day and isn't minute-precise, which would also break the Mon 10:00 and Tue 12:00 deadlines.
 - A manual **Retry run** button for admins exists as well.
 
 ```

@@ -33,6 +33,7 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
   - everything else is **not ordered this week**, and next Monday's run looks at it again;
   - cards Raghav already approved but didn't send **are sent to procurement automatically**;
   - Deepa gets an alert.
+- **On the free plan,** the Tuesday rule runs a little after the deadline (between 12:30 and 13:30); the deadline for decisions is still {{deadline.timeIST=12:00}} ⚙.
 - **Upload late, so the queue is only ready after Tuesday 12:00:** the same rule applies at **12:00 the next day**, and Deepa gets an alert.
 - **Draft not issued within {{draftStaleDays=3}} days ⚙:** procurement and Raghav get an alert. **Procurement must not issue a draft older than {{draftStaleDays=3}} days without Raghav's OK.**
 
