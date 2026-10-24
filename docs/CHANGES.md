@@ -182,3 +182,18 @@ The replay already reports all three numbers, and prints the verdict under both 
 | 7 | Supplier-clustered interval shown as a check | Correlated supplier demand; intervals came out similar |
 
 **Open question (business number, D18):** with default perishable bounds and MOQ = std qty, the live queue will mostly show infeasible perishable cards. Real perishable MOQs (already requested) settle this.
+
+## C-034: Gate headline assumes Raghav orders the MOQ on infeasible perishable cards
+
+**Status: Decided 24 Oct 2026** (the user delegated the call). Affects C-033 item 3 and REPLAY_SPEC §3. No business number changes.
+
+**Decision.** The day-45 gate's headline verdict simulates Raghav **ordering the MOQ** on every infeasible perishable card. The "skip" verdict is still computed and shown next to it, and the report flags it when the two differ. `npm run replay` defaults to `--infeasible moq`.
+
+**Why.**
+- The plan keeps a person on these cards (D7, C-023i). The card shows both choices, including "skip → about N days to stockout". A planner who sees that a shelf will empty orders the minimum. Skipping every card is the unreviewed fallback, not how the desk is meant to be used.
+- The cost of ordering the MOQ is not hidden. Any extra stock it causes shows up as write-offs in the simulator, and write-offs are one of the two gate measures.
+- The stress test (docs/STRESS_TEST_REPLAY.md) found that skipping loses sales in about 61% of perishable weeks under the default band. A headline built on "skip" would judge a policy nobody intends to run.
+
+**What follows.**
+- If the gate passes only under "order MOQ", the pilot instructions must tell Raghav to order the MOQ on infeasible cards, unless the write-off risk is clearly worse. That is an Instructions change for Milestone 6, and it needs his agreement.
+- Under the defaults, about 6 in 10 perishable weeks give an infeasible card, which could flood the review queue. Real perishable MOQs (still awaited) settle how many. This is logged as a risk for the Milestone 5 queue design, not a change to D7 or D18.

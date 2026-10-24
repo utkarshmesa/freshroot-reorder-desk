@@ -30,6 +30,8 @@ export function renderReport(r: ReportInput): string {
   push(`# ${r.title}`, "", `> ${r.dataNote}`, "");
   push(`**Verdict: ${r.headline.verdict.result}** (infeasible perishable cards: ${policyName(m)})`, "", ...r.headline.verdict.reasons.map((x) => `- ${x}`), "");
   push(`Under the other policy (${policyName(r.other.main)}) the verdict would be **${r.other.verdict.result}**.`, "");
+  if (r.headline.verdict.result !== r.other.verdict.result)
+    push(`**The verdict depends on what Raghav does with infeasible perishable cards.** The pilot's instructions must say so (C-034).`, "");
   push(
     `Simulated Mondays: **${m.replayWeeks}** (${m.firstWeek ?? "–"} to ${m.lastWeek ?? "–"}) · SKUs compared: **${m.compared}** of ${m.skus.length} · method: \`docs/REPLAY_SPEC.md\``,
     "",

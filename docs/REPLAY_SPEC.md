@@ -55,7 +55,7 @@ Per SKU, per week, in order:
 - that arm's in-transit orders, which stand in for open POs.
 
 It runs as a single SKU, with the real festivals and holds. Every recommendation is taken as approved at the engine's quantity, i.e. the rules as written. Two policies are reported separately:
-- **Infeasible perishable cards:** "skip" (as written) or "order MOQ". This is an explicit input to the gate run (`--infeasible skip|moq`, C-033 item 3). The headline verdict uses the chosen policy; the report shows the verdict under both.
+- **Infeasible perishable cards:** "skip" (as written) or "order MOQ". The gate headline uses "order MOQ" (C-034; `--infeasible skip` overrides it). The report shows the verdict under both and says when they differ (C-033 item 3).
 - **Tuesday deadline:** not modelled. All queue cards count as reviewed in time.
 
 ## 4. Outputs

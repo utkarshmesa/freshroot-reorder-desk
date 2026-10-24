@@ -1,9 +1,9 @@
 // Day-45 replay runner (REPLAY_SPEC). Reads files from a folder, writes results.json + report.md.
 //
-//   npm run replay -- --dir path/to/export --infeasible skip|moq [--out replay-out/name] [--warmup 13]
+//   npm run replay -- --dir path/to/export [--infeasible moq|skip] [--out replay-out/name] [--warmup 13]
 //
-// --infeasible is what Raghav does with an infeasible perishable card: skip (the rules as written) or order the
-// MOQ. It is required: the perishable verdict depends on it (C-033 item 3). The report shows both.
+// --infeasible is what Raghav does with an infeasible perishable card: order the MOQ (the gate headline, C-034)
+// or skip (the rules as written). The report shows the verdict under both (C-033 item 3).
 //
 // Files are recognised by their headers, as in the app's upload:
 //   sales (sales_weekly format, or the case weekly_sales), sku_master (or case sku_master),
@@ -31,9 +31,9 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
-const USAGE = "Usage: npm run replay -- --dir <folder with the export files> --infeasible skip|moq [--out <folder>] [--warmup 13]";
+const USAGE = "Usage: npm run replay -- --dir <folder with the export files> [--infeasible moq|skip] [--out <folder>] [--warmup 13]";
 const dir = arg("dir") ?? fail(USAGE);
-const policy = arg("infeasible");
+const policy = arg("infeasible", "moq"); // C-034: the headline assumes Raghav orders the MOQ
 if (policy !== "skip" && policy !== "moq") fail(`--infeasible must be skip or moq (what Raghav does with an infeasible perishable card).
 ${USAGE}`);
 const otherPolicy = policy === "skip" ? "moq" : "skip";
