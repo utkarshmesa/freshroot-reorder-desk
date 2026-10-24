@@ -169,6 +169,7 @@ If one stops being true, tell its owner. Most can be changed in Settings.
 |---|---|
 | **Upload is rejected** | Read the red lines in the validation report: usually an old stock date, a missing week, an unknown SKU, or a file already uploaded. Fix in SAP and re-export. |
 | **Unknown SKU or distributor in the upload** | Add it in **Settings** (with Zoho item, supplier, std qty, lead time and perishability for SKUs), or fix the code in the file. |
+| **Procurement sends lead times, MOQs, shelf lives** | Use the template `data/templates/sku_details_for_procurement.csv`: procurement fills the blank columns (lead time in weeks, MOQ and pack size in units, shelf life in weeks, unit cost in ₹, Zoho item id); Priya uploads it on **Upload**. A blank cell keeps what Settings already has. Do this before the first shadow week, so cards stop saying "assumed". |
 | **New SKU launching** | **Settings › SKUs › Add**. Fill every field, including the **launch estimate** (units/week). Until the Zoho item and supplier are set, the SKU is blocked from ordering. |
 | **SKU being discontinued** | Set it **Inactive** with an end date. The hold list shows any open POs to cancel; excess stock appears on the clearance list for Sales. |
 | **Pack size / SKU code change** | Add the new SKU, make the old one inactive, and add a **hold** on the new SKU so Raghav plans it by hand until it has 12 weeks of history. |
