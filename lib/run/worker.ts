@@ -227,8 +227,9 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
         else {
           if (rb.changed) patch.issued_lines = rb.lines;
           // This week's own draft (a same-week correction) isn't an "earlier" pending draft (stress test F4).
-          if (rb.pending && d.iso_week !== run.iso_week) pending.add(d.supplier_id as string);
-          else {
+          if (rb.pending) {
+            if (d.iso_week !== run.iso_week) pending.add(d.supplier_id as string);
+          } else {
             patch.status = rb.status;
             patch.issued_at = now; // first seen issued at this read-back
           }
@@ -251,6 +252,9 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
           );
         }
       }
+      // One pending order per supplier across kinds (review M5b #3): an earlier file-mode sheet not yet placed holds it too.
+      const sheets = await must(db.from("draft_po").select("supplier_id").eq("mode", "file").eq("status", "created").neq("iso_week", run.iso_week), "unplaced sheets");
+      for (const sh of sheets) pending.add(sh.supplier_id as string);
       doc = { ...doc, pending_suppliers: [...pending].sort(), calls: callsSoFar() };
       if (!(await advance({ status: "zoho_read", zoho_read: doc }))) return { runId, status: "superseded", claimed: true };
       status = "zoho_read";
@@ -275,7 +279,8 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
         items: Object.fromEntries(Object.entries(read.items).map(([k, v]) => [k, { unit: v.unit, status: v.status }])),
         vendors: Object.fromEntries(Object.entries(read.vendors).map(([k, v]) => [k, { status: v.status }])),
       };
-      if (!(await advance({ status: "mapping", zoho_read: doc }))) return { runId, status: "superseded", claimed: true };
+      // Zoho answered: outage retries so far don't count against a later, unrelated failure (review M5b #11).
+      if (!(await advance({ status: "mapping", zoho_read: doc, step_attempts: 0 }))) return { runId, status: "superseded", claimed: true };
       status = "mapping";
     }
 

@@ -48,6 +48,8 @@ export type UploadContext = {
   currentRunWeek?: string | null; // week of the latest (non-superseded) run
   lastAsOf: string | null; // ISO timestamp of the last committed stock snapshot
   previousWeekNetUnits: number | null; // total net units of latestCommittedWeek
+  /** Sales already loaded: per SKU (all under "ALL"), per distributor, or none yet (C-040, review M5b #8). */
+  salesGranularity?: "sku" | "distributor" | null;
   rules: { restatementWindowWks: number; volumeChangeConfirmPct: number; festivalUpliftPct: number; festivalPreloadWks: number };
 };
 

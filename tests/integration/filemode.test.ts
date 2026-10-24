@@ -34,7 +34,7 @@ async function lines(id: string) {
   return data ?? [];
 }
 const start = async (who: "deepa" | "raghav", over: Partial<Parameters<typeof startFileMode>[1]> = {}) =>
-  startFileMode((await as(who)).client, { runId, openPos: OPEN_POS, receipts: null, reason: "Zoho org not available yet", certified: true, uploadedBy: "Deepa Nair", now: MON, ...over });
+  startFileMode(service(), { runId, actorId: (await as(who)).id, openPos: OPEN_POS, receipts: null, reason: "Zoho org not available yet", certified: true, uploadedBy: "Deepa Nair", now: MON, ...over });
 
 beforeAll(async () => {
   await resetData();
@@ -125,5 +125,44 @@ describe("the week runs on the file", () => {
     const r = await sendToProcurement(service(), runId, { now: TUE, envMode: undefined, zoho: mustNotCallZoho });
     expect(r.mode).toBe("shadow");
     expect((await service().from("alert").select("kind").eq("kind", "po_sheets_ready")).data).toEqual([]);
+  });
+});
+
+describe("review M5b fixes", () => {
+  it("#1: files can't replace Zoho once the queue exists or something was sent this week", async () => {
+    expect((await start("deepa")).ok).toBe(true);
+    await processRun(service(), runId, { caseDataMode: false, zoho: mustNotCallZoho, llm: null, now: MON });
+    await service().from("run").update({ status: "blocked", error: { reason: "zoho_not_draft" } }).eq("id", runId);
+    const again = await start("deepa");
+    expect(again.ok).toBe(false);
+    expect(again.ok ? "" : again.errors[0]).toMatch(/already has its queue or sent orders/);
+  });
+
+  it("#2: refused while a worker holds the run", async () => {
+    await service().from("run").update({ status: "zoho_read", locked_until: new Date(Date.now() + 60_000).toISOString(), error: { reason: "zoho_unavailable" } }).eq("id", runId);
+    const r = await start("deepa");
+    expect(r.ok ? "" : r.errors[0]).toMatch(/working on this run right now/);
+  });
+
+  it("#3: an earlier unissued Zoho draft holds its supplier in a file-mode week", async () => {
+    await service().from("draft_po").insert({ run_id: runId, supplier_id: "DIST002", iso_week: "2026-W42", mode: "live", reference: "FR-2026-W42-DIST002", zoho_po_id: "z-1", status: "created" });
+    expect((await start("deepa")).ok).toBe(true);
+    await service().from("run").update({ mode: "live" }).eq("id", runId);
+    await processRun(service(), runId, { caseDataMode: false, zoho: mustNotCallZoho, llm: null, now: MON });
+    const dist002 = (await lines(runId)).filter((l) => (l.inputs as { supplierId: string }).supplierId === "DIST002" && l.line_state !== null);
+    expect(dist002.length).toBeGreaterThan(0);
+    expect(dist002.every((l) => l.line_state === "blocked_pending")).toBe(true);
+  });
+
+  it("#9: a sheet waiting for re-approval can't be marked placed", async () => {
+    const { data: sheet } = await service().from("draft_po").insert({ run_id: runId, supplier_id: "DIST004", iso_week: "2026-W42", mode: "file", reference: "FR-2026-W42-DIST004", status: "created", needs_reapproval: true }).select("id").single();
+    const { client: proc } = await as("procurement");
+    expect((await proc.rpc("confirm_placed", { p_draft_id: sheet!.id })).error?.message).toMatch(/Raghav must re-approve/);
+  });
+
+  it("#10: the switch can't be called from a browser session", async () => {
+    const { client } = await as("deepa");
+    const { error } = await client.rpc("use_file_mode", { p_run_id: runId, p_doc: {}, p_reason: "x", p_actor: (await as("deepa")).id });
+    expect(error).not.toBeNull();
   });
 });

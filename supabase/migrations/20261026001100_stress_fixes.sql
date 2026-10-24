@@ -1,6 +1,7 @@
 -- Step 4 stress-test fixes (docs/STRESS_TEST_STEP4.md §1).
 
--- F2: re-uploading the SKU master no longer wipes values typed in Settings.
+-- F2: re-uploading the SKU master no longer wipes values typed in Settings, and a file without a status column
+-- never reactivates a SKU or distributor made inactive in Settings (review M5b #7).
 create or replace function public.commit_upload(p_upload_id uuid) returns jsonb
 language plpgsql security definer set search_path = public
 set statement_timeout = '120s' as $$
@@ -37,14 +38,16 @@ begin
   on conflict (id) do update set name = excluded.name;
 
   insert into public.distributor (id, name, region, status, start_week, end_week)
-  select r ->> 'id', r ->> 'name', r ->> 'region', coalesce(r ->> 'status', 'active'), r ->> 'start_week', r ->> 'end_week'
+  select r ->> 'id', r ->> 'name', r ->> 'region',
+         coalesce(r ->> 'status', (select x.status from public.distributor x where x.id = r ->> 'id'), 'active'), r ->> 'start_week', r ->> 'end_week'
   from public.upload_staging s, lateral (select s.row as r) x where s.upload_id = u.id and s.kind = 'distributor'
   on conflict (id) do update set name = excluded.name, region = excluded.region, status = excluded.status,
     start_week = excluded.start_week, end_week = excluded.end_week;
 
   insert into public.sku (id, name, category, status, first_sale_week, launch_estimate_wk, std_qty, moq, pack_size, uom,
                           lead_time_wks, shelf_life_wks, perishable, unit_cost_inr, supplier_id, zoho_item_id)
-  select r ->> 'id', r ->> 'name', r ->> 'category', coalesce(r ->> 'status', 'active'), r ->> 'first_sale_week',
+  select r ->> 'id', r ->> 'name', r ->> 'category',
+         coalesce(r ->> 'status', (select k.status from public.sku k where k.id = r ->> 'id'), 'active'), r ->> 'first_sale_week',
          (r ->> 'launch_estimate_wk')::numeric, (r ->> 'std_qty')::int, (r ->> 'moq')::int, (r ->> 'pack_size')::int, r ->> 'uom',
          (r ->> 'lead_time_wks')::numeric, (r ->> 'shelf_life_wks')::numeric, (r ->> 'perishable')::boolean,
          (r ->> 'unit_cost_inr')::numeric, nullif(r ->> 'supplier_id', ''), r ->> 'zoho_item_id'

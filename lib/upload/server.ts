@@ -30,7 +30,14 @@ export async function loadContext(user: SupabaseClient, hashes: string[], caseDa
   const { data, error } = await user.rpc("upload_context", { p_hashes: hashes });
   if (error) throw new Error(error.message);
   const c = data as Ctx;
+  // Review M5b #8: per-SKU and per-distributor sales must never mix in the history (demand would double).
+  const [skuLevel, distLevel] = await Promise.all([
+    user.from("sales_fact").select("sku_id").eq("distributor_id", "ALL").limit(1),
+    user.from("sales_fact").select("sku_id").neq("distributor_id", "ALL").limit(1),
+  ]);
+  const salesGranularity = distLevel.data?.length ? "distributor" : skuLevel.data?.length ? "sku" : null;
   return {
+    salesGranularity,
     caseDataMode,
     knownSkuIds: new Set(c.sku_ids),
     activeSkuIds: new Set(c.active_sku_ids),

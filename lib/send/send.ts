@@ -149,6 +149,9 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
         const po = await readPo(http, d.zoho_po_id as string);
         if (po && (poStatus(po.status) === "draft" || poStatus(po.status) === null)) pending = true;
       }
+      // An earlier file-mode sheet not yet placed holds the supplier too (review M5b #3).
+      const sheets = await must(db.from("draft_po").select("id").eq("supplier_id", s.supplierId).eq("mode", "file").eq("status", "created").neq("iso_week", week), "unplaced sheets");
+      if (sheets.length) pending = true;
     }
     if (pending) {
       const { error } = await db.from("draft_po").insert({ run_id: runId, supplier_id: s.supplierId, iso_week: week, mode, reference, status: "skipped_pending", requested_lines: requested(s.lines) });
@@ -183,14 +186,21 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
         const st = po ? poStatus(po.status) : "cancelled";
         const gone = st === "cancelled" || st === "closed";
         const now = new Map<string, number>();
+        const openNow = new Map<string, number>();
         for (const l of po?.line_items ?? []) {
           const sku = skuOfItem.get(l.item_id);
-          if (sku) now.set(sku, (now.get(sku) ?? 0) + Number(l.quantity));
+          if (!sku) continue;
+          now.set(sku, (now.get(sku) ?? 0) + Number(l.quantity));
+          openNow.set(sku, (openNow.get(sku) ?? 0) + Math.max(0, Number(l.quantity) - Number(l.quantity_received ?? 0)));
         }
+        const counts = st === "open" || st === "partially_received" || st === "billed";
         const skus = new Set([...now.keys(), ...mondayLines.filter((l) => l.poId === p.purchaseorder_id).map((l) => l.skuId)]);
         for (const sku of skus) {
           const was = monday.get(`${p.purchaseorder_id}|${sku}`);
-          if (gone ? was !== undefined : was === undefined || was !== (now.get(sku) ?? 0)) touched.add(sku);
+          // A PO not in Monday's read moves the position only if it now has quantity on order (review M5b #5:
+          // a fully received PO later billed changes nothing).
+          const appeared = was === undefined && counts && (openNow.get(sku) ?? 0) > 0;
+          if (gone ? was !== undefined : appeared || (was !== undefined && was !== (now.get(sku) ?? 0))) touched.add(sku);
         }
       }
       const held = lines.filter((l) => touched.has(l.skuId));
@@ -281,7 +291,8 @@ async function sendSheets(
 ): Promise<SendResult> {
   for (const s of ready) {
     const reference = draftReference(week, s.supplierId);
-    const earlier = await must(db.from("draft_po").select("reference").eq("supplier_id", s.supplierId).eq("mode", "file").eq("status", "created").neq("iso_week", week), "earlier sheets");
+    // Earlier sheets not placed, or earlier Zoho drafts unissued at their last read-back (review M5b #3).
+    const earlier = await must(db.from("draft_po").select("reference").eq("supplier_id", s.supplierId).in("mode", ["live", "file"]).eq("status", "created").neq("iso_week", week), "earlier orders");
     if (earlier.length) {
       const { error } = await db.from("draft_po").insert({ run_id: runId, supplier_id: s.supplierId, iso_week: week, mode: "file", reference, status: "skipped_pending", requested_lines: requested(s.lines) });
       if (error && error.code !== UNIQUE_VIOLATION) throw new Error(`skipped sheet: ${error.message}`);

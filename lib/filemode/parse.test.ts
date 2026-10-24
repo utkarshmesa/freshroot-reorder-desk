@@ -21,6 +21,9 @@ describe("readPositionFiles", () => {
   it("receipts dated before Monday of the run week are ignored (SAP stock already has them), with a note", () => {
     const r = readPositionFiles({ openPos: open("PO-1,DIST001,SKU013,2026-10-12,300,100,partially_received,,"), receipts: rec("PO-1,SKU013,2026-10-19,100\nPO-1,SKU013,2026-10-17,40"), runWeek: "2026-W43", skus: SKUS });
     expect(r.receipts).toEqual([{ poId: "PO-1", skuId: "SKU013", date: "2026-10-19", qty: 100 }]);
+    // Review M5b #4: the list is "as of Monday 00:00", so the Monday receipt moves from open to received.
+    expect(r.poLines[0]).toMatchObject({ ordered: 300, received: 200 });
+    expect(r.summary.openUnits).toBe(100);
     expect(r.warnings.join(" ")).toMatch(/1 receipt line\(s\) dated before 2026-10-19/);
   });
 

@@ -257,3 +257,20 @@ The replay already reports all three numbers, and prints the verdict under both 
 - C-039 gives procurement one write in the app, **Placed** on a file-mode PO sheet. This is a narrow exception to C-013 (procurement read-only); it never touches Zoho.
 - In file-mode weeks, triage stays as usual (auto-approve still applies). The open question from the nine checks was settled in favour of the simplest option. The owner switch, procurement's certification and the pending-sheet rule are the human gates.
 - C-037's gate is described in STRESS_TEST_STEP4 §3 and RUNBOOK §7. It is judged by people on the Outcomes evidence, not computed by the app.
+
+**Review of the Step 4 build (independent reviewer, 24 Oct 2026): 12 findings, all fixed with tests.**
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | File mode could start after the queue existed or a Zoho send happened, so the week was re-queued and suppliers already drafted got sheets too (double order) | `use_file_mode` refuses once the run has a queue or any live draft or sheet exists that week; the desk offers it only before the position is read |
+| 2 | File mode could race a worker that was still retrying Zoho, which could overwrite the file's position | Refused while a worker holds the run |
+| 3 | The one-pending-order rule didn't cross between Zoho drafts and file sheets | Both kinds now hold the supplier, in Zoho weeks and in file weeks |
+| 4 | Receipts since Monday were counted twice in file mode | Each receipt moves its quantity from open to received on the matching PO line |
+| 5 | A fully received PO that was billed after Monday held its line | A PO not in Monday's read holds a line only if it now has quantity on order |
+| 6 | A same-week draft still pending was marked issued (inflating order speed) | A pending draft is never marked issued |
+| 7 | A master file without a status column reactivated SKUs and distributors made inactive in Settings | No status in the file keeps the current status |
+| 8 | Per-SKU and per-distributor sales could mix in the history (double demand); Monday-dated stock might include Monday receipts | Mixing is refused, judged by the rows; Monday-dated stock gets a warning to export at Sunday close |
+| 9 | Procurement could mark a sheet placed before Raghav's re-approval | Refused, and the button is hidden |
+| 10 | `use_file_mode` trusted a document sent from the browser | Callable only by the server (service role), after it checks the owner and parses the files itself |
+| 11 | Outage retries counted against a later, unrelated failure | Attempts reset once Zoho answers |
+| 12 | An approval-workflow `rejected` PO status was unknown; the CSV formula guard missed tab and CR | `rejected` maps to cancelled (to confirm in the test org); guard widened |

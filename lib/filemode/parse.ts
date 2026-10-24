@@ -70,6 +70,12 @@ export function readPositionFiles(a: { openPos: ParsedTable; receipts: ParsedTab
         out.receipts.push({ poId: (r.po_number ?? "").trim(), skuId: sku, date, qty: qty.value });
       });
       if (early) out.warnings.push(`${early} receipt line(s) dated before ${monday} were ignored: Sunday's SAP stock already includes them.`);
+      // Review M5b #4: the open-PO list is "as of Monday 00:00", so goods received since then are still open on
+      // it. Move them from open to received on the matching line; the receipt itself adds them to the position.
+      for (const rc of out.receipts) {
+        const line = out.poLines.find((l) => l.poId === rc.poId && l.skuId === rc.skuId && COUNTED.has(l.status));
+        if (line) line.received = Math.min(line.ordered, line.received + rc.qty);
+      }
     }
   }
 

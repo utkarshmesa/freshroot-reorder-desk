@@ -68,6 +68,7 @@ function mapSales(c: Ctx, rows: Array<Record<string, string>>, caseMode: boolean
 }
 
 function mapStock(c: Ctx, rows: Array<Record<string, string>>, caseMode: boolean): string | null {
+  let caseStockWarned = false; // one Monday-stock warning per file, not per row
   const asOfs = new Set<string>();
   const locations = new Set<string>();
   rows.forEach((r, i) => {
@@ -82,7 +83,13 @@ function mapStock(c: Ctx, rows: Array<Record<string, string>>, caseMode: boolean
       try {
         const wk = weekOfDate(d);
         if (mondayOf(wk) !== d) issue(c, "error", "case_as_of_not_monday", `Case inventory date ${d} is not a Monday`, n);
-        else asOf = `${new Date(Date.parse(`${d}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10)}T23:59:00+05:30`;
+        else {
+          asOf = `${new Date(Date.parse(`${d}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10)}T23:59:00+05:30`;
+          if (!caseStockWarned) {
+            caseStockWarned = true;
+            issue(c, "warning", "monday_stock_as_sunday", `Stock dated Monday ${d} is taken as the Sunday 23:59 close. If SAP took it during Monday, goods received that morning would be counted twice: export it as at Sunday night (STRESS_TEST_STEP4 P7).`, n);
+          }
+        }
       } catch {
         issue(c, "error", "bad_as_of", `"${d}" is not a date`, n);
       }
@@ -129,8 +136,9 @@ function mapSkuMaster(c: Ctx, rows: Array<Record<string, string>>, caseMode: boo
       if (!p.ok) issue(c, "error", p.code, `${k}: ${p.message}`, n);
       return p.ok ? p.value : null;
     };
-    const status = (r.status ?? "active").trim().toLowerCase() || "active";
-    if (!["active", "inactive"].includes(status)) issue(c, "error", "bad_status", `status "${r.status}" must be active or inactive`, n);
+    // Review M5b #7: no status in the file means "leave it as it is" (null), never "make it active again".
+    const status = (r.status ?? "").trim().toLowerCase() || null;
+    if (status !== null && !["active", "inactive"].includes(status)) issue(c, "error", "bad_status", `status "${r.status}" must be active or inactive`, n);
     const firstSale = (r.first_sale_week ?? "").trim();
     if (firstSale && !isValidWeek(firstSale)) issue(c, "error", "invalid_week", `first_sale_week "${firstSale}" is not a valid ISO week`, n);
     const supplier = ((caseMode ? r.distributor_id : r.supplier_id) ?? "").trim();
@@ -175,8 +183,9 @@ function mapDistributorMaster(c: Ctx, rows: Array<Record<string, string>>, caseM
       }
       return;
     }
-    const status = (r.status ?? "active").trim().toLowerCase() || "active";
-    if (!["active", "inactive"].includes(status)) issue(c, "error", "bad_status", `status "${r.status}" must be active or inactive`, n);
+    // Review M5b #7: no status in the file means "leave it as it is" (null), never "make it active again".
+    const status = (r.status ?? "").trim().toLowerCase() || null;
+    if (status !== null && !["active", "inactive"].includes(status)) issue(c, "error", "bad_status", `status "${r.status}" must be active or inactive`, n);
     for (const k of ["start_week", "end_week"]) {
       const v = (r[k] ?? "").trim();
       if (v && !isValidWeek(v)) issue(c, "error", "invalid_week", `${k} "${v}" is not a valid ISO week`, n);
@@ -275,6 +284,20 @@ export function prepareUpload(files: InputFile[], ctx: UploadContext): PreparedU
   const rowsOf = (k: StagingKind) => staging.filter((s) => s.kind === k).map((s) => s.row);
   const sales = rowsOf("sales");
   const stock = rowsOf("stock");
+
+  // Review M5b #8: the history is either per SKU or per distributor, never both for the same weeks.
+  // Judged by the rows, not the file layout: a per-distributor file whose rows are all "ALL" is per-SKU data.
+  const incoming = sales.length === 0 ? null : kinds.includes("case_weekly_sales") || sales.every((r) => r.distributor_id === CASE_DISTRIBUTOR_ID) ? "sku" : "distributor";
+  if (incoming && ctx.salesGranularity && incoming !== ctx.salesGranularity) {
+    issues.push({
+      level: "error",
+      code: "sales_granularity_mixed",
+      message: incoming === "sku"
+        ? "These sales are per SKU, but the sales already loaded are per distributor. Mixing them would double the demand. Upload per-distributor sales (sales_weekly), or ask IT to switch the history over."
+        : "These sales are per distributor, but the sales already loaded are per SKU. Mixing them would double the demand. Keep uploading per-SKU sales, or ask IT to switch the history over.",
+      link: LINK.uploader,
+    });
+  }
 
   // SKU-level sales (the case layout, C-011/C-040) always go under the synthetic "ALL" distributor.
   if (kinds.includes("case_weekly_sales") && !ctx.knownDistributorIds.has(CASE_DISTRIBUTOR_ID)) {

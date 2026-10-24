@@ -121,6 +121,40 @@ describe("F3: only a position change holds a line; held lines alert the planner"
   });
 });
 
+describe("review M5b #3, #5, #7", () => {
+  it("#7: a master file without a status column never reactivates an inactive SKU", async () => {
+    await service().from("sku").update({ status: "inactive" }).eq("id", "SKU002");
+    const master = readFileSync("data/case/sku_master.csv", "utf8").replace("SKU003,Freshroots Brown Rice 1kg,Staple,Low,300", "SKU003,Freshroots Brown Rice 1kg,Staple,Low,320");
+    const { client, id } = await as("priya");
+    const staged = await stageUpload({ user: client, service: service(), userId: id, files: [toInputFile("sku_master.csv", new TextEncoder().encode(master))], caseDataMode: true });
+    expect(staged.report.errors).toBe(0);
+    await commitUpload(client, staged.uploadId);
+    const { data } = await service().from("sku").select("id, status, std_qty").in("id", ["SKU002", "SKU003"]).order("id");
+    expect(data).toEqual([{ id: "SKU002", status: "inactive", std_qty: 200 }, { id: "SKU003", status: "active", std_qty: 320 }]);
+    await service().from("sku").update({ status: "active" }).eq("id", "SKU002");
+  });
+
+  it("#5: a PO fully received before Monday and billed since then doesn't hold the line", async () => {
+    await setupZoho();
+    const runId = await newRun("live");
+    await service().from("app_mode").update({ mode: "live" }).not("mode", "is", null);
+    await approveAll(runId);
+    z.addPo({ purchaseorder_id: "old-rcvd", status: "billed", vendor_id: "v-DIST001", reference_number: "manual", last_modified_time: "2026-10-19T15:00:00+0530", line_items: [{ item_id: "it-SKU001", quantity: 50, quantity_received: 50 }] });
+    const r = await sendToProcurement(service(), runId, { now: TUE, zoho: zohoFactory, envMode: "live", sleep: async () => {} });
+    expect(r.held).toEqual([]);
+  });
+
+  it("#3: an earlier file-mode sheet not yet placed holds its supplier in a Zoho week", async () => {
+    await setupZoho();
+    const runId = await newRun("live");
+    await service().from("app_mode").update({ mode: "live" }).not("mode", "is", null);
+    await approveAll(runId);
+    await service().from("draft_po").insert({ run_id: runId, supplier_id: "DIST001", iso_week: "2026-W42", mode: "file", reference: "FR-2026-W42-DIST001", status: "created" });
+    const r = await sendToProcurement(service(), runId, { now: TUE, zoho: zohoFactory, envMode: "live", sleep: async () => {} });
+    expect(r.skippedPending).toContain("DIST001");
+  });
+});
+
 describe("F4: a same-week correction", () => {
   it("carries Raghav's decision over when the card is unchanged", async () => {
     await setupZoho();

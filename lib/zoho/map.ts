@@ -24,6 +24,8 @@ const STATUS: Record<string, PoLine["status"]> = {
   partially_billed: "billed",
   closed: "closed",
   cancelled: "cancelled",
+  // Rejected in an approval workflow: never issued, never stock (assumption until the test org confirms it).
+  rejected: "cancelled",
   void: "cancelled",
 };
 

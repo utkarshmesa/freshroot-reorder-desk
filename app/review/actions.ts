@@ -95,8 +95,9 @@ export async function runFromFiles(form: FormData) {
   const receipts = form.get("receipts");
   if (!(openPos instanceof File) || openPos.size === 0) back("error", "Choose the open-PO file.");
   const parse = async (f: File) => parseFile(f.name, new Uint8Array(await f.arrayBuffer()));
-  const result = await startFileMode(await userClient(), {
+  const result = await startFileMode(serviceClient(), {
     runId,
+    actorId: session.userId,
     openPos: await parse(openPos as File),
     receipts: receipts instanceof File && receipts.size > 0 ? await parse(receipts) : null,
     reason: str(form, "reason"),

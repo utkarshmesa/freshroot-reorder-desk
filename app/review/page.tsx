@@ -218,7 +218,7 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
                           {d.mode === "file" && (
                             <span className="row">
                               <a href={`/review/sheet?draft=${d.id}`}>Download sheet</a>
-                              {d.status === "created" && can(session, "sheet.confirm") && (
+                              {d.status === "created" && !d.needsReapproval && can(session, "sheet.confirm") && (
                                 <form action={confirmPlaced}>
                                   <input type="hidden" name="draft" value={d.id} />
                                   <button>Placed</button>

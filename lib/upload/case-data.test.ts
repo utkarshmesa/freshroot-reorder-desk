@@ -68,6 +68,12 @@ describe("UP-13 case-data mode", () => {
     expect(p.report.newWeeks).toHaveLength(16);
   });
 
+  it("review M5b #8: per-SKU sales are refused when the history is per distributor (and the reverse)", () => {
+    const r = prepareUpload(caseFiles(), { ...empty(), caseDataMode: false, salesGranularity: "distributor" }).report;
+    expect(codes(r.issues, "error")).toContain("sales_granularity_mixed");
+    expect(codes(prepareUpload(caseFiles(), { ...empty(), caseDataMode: false, salesGranularity: "sku" }).report.issues, "error")).not.toContain("sales_granularity_mixed");
+  });
+
   it("C-040: the case layouts are accepted outside case-data mode, with SKU-level sales under one ALL distributor", () => {
     const p2 = prepareUpload(caseFiles(), { ...empty(), caseDataMode: false });
     expect(codes(p2.report.issues, "error")).toEqual([]);

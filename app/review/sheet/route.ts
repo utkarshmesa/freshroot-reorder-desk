@@ -8,7 +8,7 @@ import { userClient } from "@/lib/db/server";
 const cell = (v: unknown) => {
   const s = String(v ?? "");
   // Quote everything; a leading = + - @ is prefixed so a spreadsheet never runs it as a formula.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   return `"${safe.replace(/"/g, '""')}"`;
 };
 
