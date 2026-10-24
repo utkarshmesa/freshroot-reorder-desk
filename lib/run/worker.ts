@@ -16,6 +16,7 @@ import { productionLlm } from "@/lib/llm/client";
 import { explainBrief, explainCard, type LlmCall } from "@/lib/llm/explain";
 import { briefFacts, cardFacts } from "@/lib/llm/facts";
 import { reasonTemplate } from "@/lib/llm/template";
+import { deadlineFor } from "@/lib/cron/schedule";
 import { productionZoho, type ZohoFactory } from "@/lib/zoho/client";
 import { ZohoApiError, ZohoAuthError, ZohoBudgetError, ZohoDataError, type ZohoHttp } from "@/lib/zoho/http";
 import { mappingCheck, readback, type RequestedLine } from "@/lib/zoho/map";
@@ -296,6 +297,14 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
       await must(db.from("recommendation").delete().eq("run_id", runId).select("id"), "clear recommendations");
       await must(db.from("recommendation").insert(out.recommendations.map((r) => toRow(runId, r, pending, names))).select("id"), "save recommendations");
       status = (await advance({ status: "ready", ready_at: now, notes: out.notes, error: null })) ? "ready" : "superseded";
+      // C-024: ready after the decision deadline → the rule applies at the next noon firing; tell Deepa.
+      const deadline = deadlineFor(run.iso_week, input.rules.deadline);
+      if (status === "ready" && nowDate.getTime() > deadline.getTime()) {
+        await db.from("alert").upsert(
+          { kind: "run_ready_late", dedupe_key: `run_ready_late:${runId}`, run_id: runId, payload: { week: run.iso_week, message: `The ${run.iso_week} queue was ready after the decision deadline; the Tuesday rule will apply at the next 12:00 IST.` } },
+          { onConflict: "dedupe_key", ignoreDuplicates: true },
+        );
+      }
     }
 
     // 7. Claude (§8.7): a reason per card Raghav sees, and the weekly brief. Checked numbers or template.
@@ -305,10 +314,19 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
       const rows = await must(db.from("recommendation").select("*").eq("run_id", runId), "recommendations");
       const recs = rows.map((r) => ({ id: r.id as number, rec: recFromRow(r), lineState: (r.line_state as string | null) ?? null, source: r.reason_source as string }));
       const toExplain = recs.filter((r) => r.lineState === "queued" && !r.rec.holdout && r.source !== "llm");
+      let fellBack = 0;
       await pool(toExplain, 5, async (r) => {
         const out = await explainCard(cardFacts(r.rec).facts, llm, namesFor(r.rec, names));
         if (out.source === "llm") await must(db.from("recommendation").update({ reason_text: out.text, reason_source: "llm" }).eq("id", r.id).select("id"), "reason");
+        else fellBack++;
       });
+      // §10: most reasons falling back means the LLM is down or drifting; info to IT, never a blocker.
+      if (llm && toExplain.length && fellBack / toExplain.length > 0.5) {
+        await db.from("alert").upsert(
+          { kind: "llm_fallback", dedupe_key: `llm_fallback:${runId}`, run_id: runId, payload: { message: `${fellBack} of ${toExplain.length} card reasons fell back to template text this run.` } },
+          { onConflict: "dedupe_key", ignoreDuplicates: true },
+        );
+      }
       const brief = await explainBrief(briefFacts(run.iso_week, run.mode, recs.map((r) => ({ rec: r.rec, lineState: r.lineState }))), llm);
       await must(db.from("brief").upsert({ run_id: runId, text: brief.text, source: brief.source, checked: brief.source === "llm" }, { onConflict: "run_id" }).select("run_id"), "brief");
       status = (await advance({ status: "done" })) ? "done" : "superseded";

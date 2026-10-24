@@ -2,6 +2,7 @@
 // unfinished run. Requires CRON_SECRET (Vercel sends it as a Bearer token).
 import { NextResponse, type NextRequest } from "next/server";
 import { caseDataMode, serviceClient } from "@/lib/db/server";
+import { deliverAlerts, resendSender } from "@/lib/cron/jobs";
 import { processPendingRuns } from "@/lib/run/worker";
 
 export const maxDuration = 300;
@@ -12,8 +13,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {
-    const results = await processPendingRuns(serviceClient(), { caseDataMode: caseDataMode() });
-    return NextResponse.json({ results });
+    const db = serviceClient();
+    const results = await processPendingRuns(db, { caseDataMode: caseDataMode() });
+    const delivered = await deliverAlerts(db, resendSender(), new Date()); // alerts go out within 5 minutes
+    return NextResponse.json({ results, delivered });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
