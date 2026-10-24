@@ -68,7 +68,7 @@ Until decided, Outcomes shows write-offs as "not available".
 
 ## C-019 … C-022: Proposals from the council
 
-**Status:** C-019, C-020 and C-021 are still **proposed**. C-022 is **approved** (23 Oct 2026). Each needs your decision; for the scope ones I'll run nine-checks first if you want to pursue them.
+**Status:** C-020 **adopted for Milestone 4** on Utkarsh's go-ahead to move on (24 Oct 2026); spec in `docs/REPLAY_SPEC.md`. C-019 and C-021 are still **proposed**. C-022 is **approved** (23 Oct 2026). Each needs your decision; for the scope ones I'll run nine-checks first if you want to pursue them.
 
 | # | Proposal | Raised because | Scope impact | My recommendation |
 |---|---|---|---|---|
@@ -130,3 +130,10 @@ BUILD_PLAN §8 says: "Q = std × (1.5 if HD else 1); raise in std steps until P 
 **The W43 reference itself shows this:** Mango Drink (HD) orders **750**. Without the HD flag the same SKU would order 1,000 (500 → 1,000). Any rule that stops HD ordering less than non-HD would change the locked acceptance test, so the engine keeps the literal rule.
 
 **Recommendation:** the day-45 replay reports how often this happens and what it costs. Raghav decides afterwards whether to change the rule, through a rule-change proposal (nine-checks, then a new reference).
+
+## C-030: Deferred and adjusted at the start of Milestone 4 (24 Oct 2026)
+
+| # | What | Status |
+|---|---|---|
+| a | **Zoho test org deferred.** Creating a Zoho Inventory organisation failed with Zoho error 6063 on this account (two tries in the built-in browser). The ADR-0002 scope check (ZO-13), the recorded fixtures and the M1 exit item stay open until an org exists. The refresh token is saved in  for when it does. | Deferred by Utkarsh |
+| b | **The replay reads files directly** (), not the  table. It's a one-off batch, so loading 19M rows into Postgres buys nothing. The table stays available. | Implementation detail; refines C-023g |

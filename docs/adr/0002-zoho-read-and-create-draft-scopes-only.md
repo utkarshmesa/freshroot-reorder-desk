@@ -50,6 +50,8 @@ Read access is what makes the position correct. CREATE is what turns a decision 
 - **Non-production environments get a read-only-scope refresh token.** Only production holds the create-scoped token. One extra token stays far below Zoho's 20-per-user limit.
 
 ## Verification (week-1 must-do; **Milestone 1 exit blocker**)
+
+> **Status (24 Oct 2026):** not run yet. The Zoho account couldn't create an Inventory organisation (Zoho error 6063); deferred (C-030a). Self Client and refresh token are ready in `.env.zoho-test`.
 In the test org, with exactly this scope set:
 1. create a PO as a draft;
 2. attempt to mark it issued via the status endpoint, update it, and delete it;
