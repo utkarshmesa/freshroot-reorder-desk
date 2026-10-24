@@ -241,3 +241,14 @@ The replay already reports all three numbers, and prints the verdict under both 
 | c | `supabase/bootstrap.sql`, generated with the seed: shadow mode, rules v1, reason codes; no users; safe to run twice. | Production must never get the local test users from `seed.sql` |
 | d | The shadow period runs on a **read-only Zoho token**; the create-scoped token is installed at go-live (RUNBOOK §7). | Makes a Zoho write impossible during shadow while the scope check (risk K1) is still open |
 | e | Holiday weeks: pause the noon job (RUNBOOK §11). | The interim C-021 promised |
+
+## C-037 … C-040: Proposals from the Step 4 stress test
+
+**Status: Proposed (24 Oct 2026). Each needs your decision.** Evidence and nine checks: `docs/STRESS_TEST_STEP4.md`. The data Freshroots has is exactly `data/case/` (16 weeks, no receipts, no history).
+
+| # | Proposal | Why | Affects |
+|---|---|---|---|
+| C-037 | Replace the day-45 back-test gate with a **shadow safety gate** (STRESS_TEST_STEP4 §3) | The back-test needs 3 years of history and receipts; there are 16 weeks and none. It can only say NOT DECIDABLE | BUILD_PLAN §12 gate; REPLAY_SPEC kept for later |
+| C-038 | Shadow compares the system with **Raghav's actual orders** per SKU-week (from the open-PO read), not only his decisions on the system's cards | Agreement on cards he has already seen is anchored; there's no record of his manual plan | C-018; Outcomes |
+| C-039 | **Zoho failsafe (file mode)**, option B: open-PO and receipts file in; per-supplier PO sheet out; "placed" confirmation; explicit owner switch per week | Without Zoho every week is blocked (fail closed); no Zoho org could be created | BUILD_PLAN §8.1, §9; guardrails kept (default fail closed, one pending order per supplier) |
+| C-040 | Accept the case file layouts in production, separate from case-data mode | Freshroots has only ever produced these layouts; case mode skips Zoho | BUILD_PLAN §7 upload contract |
