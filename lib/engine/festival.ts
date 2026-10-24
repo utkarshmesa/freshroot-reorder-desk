@@ -28,8 +28,10 @@ export function weekUpliftPct(week: IsoWeek, festivals: EventInput[], defaultPct
 /**
  * "any" (production, C-004): the full uplift if any week being ordered for touches a festival/pre-load.
  * "share" (replay only, D6): uplift scaled by the share of those weeks that do.
+ * "none" (replay only): no forward uplift; used when history has already been uplifted (Raghav's literal reading).
  */
-export function festivalFactor(weeks: IsoWeek[], festivals: EventInput[], defaultPct: number, reading: "any" | "share" = "any"): number {
+export function festivalFactor(weeks: IsoWeek[], festivals: EventInput[], defaultPct: number, reading: "any" | "share" | "none" = "any"): number {
+  if (reading === "none") return 1;
   const pcts = weeks.map((w) => weekUpliftPct(w, festivals, defaultPct));
   if (reading === "any") return 1 + Math.max(0, ...pcts) / 100;
   return 1 + pcts.reduce((a, p) => a + p, 0) / 100 / weeks.length;

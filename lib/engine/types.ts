@@ -69,8 +69,11 @@ export type EngineInput = {
   /** SKUs blocked before the engine runs (e.g. no Zoho item/vendor mapping), with the reason. */
   blocked: Record<string, string>;
   spotCheckSeed: number;
-  /** Festival reading. Production uses "any" (C-004, pinned by the W43 reference); "share" is for the replay only (D6). */
-  festivalReading?: "any" | "share";
+  /**
+   * Festival reading. Production uses "any" (C-004, pinned by the W43 reference). "share" and "none" are for the
+   * replay only (D6): "none" is used with Raghav's literal reading, where the uplift is applied to history beforehand.
+   */
+  festivalReading?: "any" | "share" | "none";
 };
 
 export type Action = "reorder" | "pause" | "none" | "blocked";
