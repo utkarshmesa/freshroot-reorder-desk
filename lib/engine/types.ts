@@ -143,4 +143,4 @@ export type Recommendation = {
   blockedReason: string | null;
 };
 
-export type EngineOutput = { runWeek: IsoWeek; recommendations: Recommendation[]; notes: string[] };
+export type EngineOutput = { runWeek: IsoWeek; recommendations: Recommendation[]; notes: string[]; missingFestivalYears: number[] };

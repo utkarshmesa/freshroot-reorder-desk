@@ -244,7 +244,7 @@ The replay already reports all three numbers, and prints the verdict under both 
 
 ## C-037 … C-040: Proposals from the Step 4 stress test
 
-**Status: Proposed (24 Oct 2026). Each needs your decision.** Evidence and nine checks: `docs/STRESS_TEST_STEP4.md`. The data Freshroots has is exactly `data/case/` (16 weeks, no receipts, no history).
+**Status: Decided 24 Oct 2026 (Utkarsh): C-037, C-038, C-039 (option B) and C-040 adopted; defects F2–F11 to be fixed first, then C-039.** Evidence and nine checks: `docs/STRESS_TEST_STEP4.md`. The data Freshroots has is exactly `data/case/` (16 weeks, no receipts, no history).
 
 | # | Proposal | Why | Affects |
 |---|---|---|---|

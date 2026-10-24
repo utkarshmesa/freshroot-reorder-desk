@@ -267,3 +267,22 @@ describe("draft read-back (ZO-05, ZO-06, D11)", () => {
     expect(readback(po("open", 600), requested)).toMatchObject({ status: "issued", changed: false });
   });
 });
+
+describe("stress test F5: every PO is listed, whatever its status", () => {
+  const now = () => new Date("2026-10-19T03:00:00Z");
+  it("an unknown status blocks the run instead of being skipped", async () => {
+    const { z, http } = setup();
+    z.addPo({ purchaseorder_id: "p1", status: "open", line_items: [{ item_id: "it-1", quantity: 10, quantity_received: 0 }] });
+    z.addPo({ purchaseorder_id: "p2", status: "awaiting_magic", line_items: [{ item_id: "it-2", quantity: 99, quantity_received: 0 }] });
+    await expect(readForRun(http, { runWeek: "2026-W43", itemToSku, now })).rejects.toThrow(/Unknown Zoho PO status "awaiting_magic"/);
+  });
+
+  it("closed, cancelled and draft POs are listed but not fetched or counted", async () => {
+    const { z, http } = setup();
+    z.addPo({ purchaseorder_id: "p1", status: "open", line_items: [{ item_id: "it-1", quantity: 10, quantity_received: 0 }] });
+    for (const [id, st] of [["c", "closed"], ["x", "cancelled"], ["d", "draft"]]) z.addPo({ purchaseorder_id: id!, status: st!, line_items: [{ item_id: "it-2", quantity: 5 }] });
+    const r = await readForRun(http, { runWeek: "2026-W43", itemToSku, now });
+    expect(r.poLines.map((l) => l.skuId)).toEqual(["SKU001"]);
+    expect(z.requests.filter((q) => /\/purchaseorders\/[^?]+\?/.test(q.url)).map((q) => new URL(q.url).pathname)).toEqual(["/inventory/v1/purchaseorders/p1"]);
+  });
+});

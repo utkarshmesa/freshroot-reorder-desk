@@ -133,6 +133,7 @@ const SUBJECTS: Record<string, string> = {
   pending_draft: "Reorder Desk: a pending draft is holding a supplier",
   draft_unconfirmed: "Reorder Desk: a draft request isn't visible in Zoho yet",
   cron_failed: "Reorder Desk: a scheduled job had errors",
+  festival_missing: "Reorder Desk: festival dates missing for next year",
   draft_stale: "Reorder Desk: a draft needs re-approval",
   deadline_applied: "Reorder Desk: Tuesday 12:00 rule applied",
   rejection_rate: "Reorder Desk: rejection rate outside the expected range",

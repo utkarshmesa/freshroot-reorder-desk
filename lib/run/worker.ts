@@ -302,6 +302,12 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
       await must(db.from("recommendation").delete().eq("run_id", runId).select("id"), "clear recommendations");
       await must(db.from("recommendation").insert(out.recommendations.map((r) => toRow(runId, r, pending, names))).select("id"), "save recommendations");
       status = (await advance({ status: "ready", ready_at: now, notes: out.notes, error: null })) ? "ready" : "superseded";
+      for (const year of out.missingFestivalYears) {
+        await db.from("alert").upsert(
+          { kind: "festival_missing", dedupe_key: `festival_missing:${year}`, run_id: runId, payload: { year, message: `No festival dates are entered for ${year}, and this week's orders reach into it. Add them in Settings → Festivals & holds.` } },
+          { onConflict: "dedupe_key", ignoreDuplicates: true },
+        );
+      }
       // C-024: ready after the decision deadline → the rule applies at the next noon firing; tell Deepa.
       const deadline = deadlineFor(run.iso_week, input.rules.deadline);
       if (status === "ready" && nowDate.getTime() > deadline.getTime()) {

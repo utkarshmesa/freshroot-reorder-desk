@@ -2,8 +2,8 @@
 // until the week-1 test-org check (ADR-0002) records real responses.
 import { mondayOf, type IsoWeek } from "@/lib/isoweek";
 import type { PoLine, Receipt } from "@/lib/engine/types";
-import { ZohoApiError, type ZohoHttp } from "./http";
-import { COUNTED_ZOHO_STATUSES, toPoLines, toReceipts, type ZohoItem, type ZohoPo, type ZohoPoSummary, type ZohoReceive, type ZohoVendor } from "./map";
+import { ZohoApiError, ZohoDataError, type ZohoHttp } from "./http";
+import { COUNTED_ZOHO_STATUSES, poStatus, toPoLines, toReceipts, type ZohoItem, type ZohoPo, type ZohoPoSummary, type ZohoReceive, type ZohoVendor } from "./map";
 
 const PER_PAGE = 200;
 
@@ -33,9 +33,15 @@ export type ZohoRead = {
 export async function readForRun(http: ZohoHttp, args: { runWeek: IsoWeek; itemToSku: ReadonlyMap<string, string>; now: () => Date }): Promise<ZohoRead> {
   const { runWeek, itemToSku } = args;
 
+  // Every PO, not only the statuses we expect (stress test F5): a status we don't know blocks the run instead of
+  // being silently skipped, which would leave its open quantity out of the position. Details are fetched only
+  // for statuses that can still have quantity on order.
+  const counted = new Set(COUNTED_ZOHO_STATUSES.map((x) => poStatus(x)));
   const summaries = new Map<string, ZohoPoSummary>();
-  for (const status of COUNTED_ZOHO_STATUSES) {
-    for (const po of await listAll<ZohoPoSummary>(http, "/purchaseorders", "purchaseorders", { status })) summaries.set(po.purchaseorder_id, po);
+  for (const po of await listAll<ZohoPoSummary>(http, "/purchaseorders", "purchaseorders")) {
+    const st = poStatus(po.status);
+    if (st === null) throw new ZohoDataError(`Unknown Zoho PO status "${po.status}" on ${po.purchaseorder_number}: the position can't be trusted, so the run is blocked.`);
+    if (counted.has(st)) summaries.set(po.purchaseorder_id, po);
   }
   const poLines: PoLine[] = [];
   for (const id of [...summaries.keys()].sort()) {

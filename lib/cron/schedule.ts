@@ -59,6 +59,7 @@ export function recipientsFor(kind: string, users: Recipient[], day: string): st
     pending_draft: [has("procurement"), has("planner")],
     draft_unconfirmed: [has("admin"), has("procurement"), has("planner")],
     cron_failed: [has("admin")],
+    festival_missing: [has("planner")],
     draft_stale: [has("procurement"), has("planner")],
     deadline_applied: [owner],
     rejection_rate: [owner],

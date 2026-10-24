@@ -97,3 +97,18 @@ describe("RU-01 W43 reference reproduced exactly", () => {
     expect(runEngine(caseInput())).toEqual(out);
   });
 });
+
+describe("stress test F9: the run warns when festival dates run out", () => {
+  it("W43 orders stay inside 2026: no warning", () => {
+    expect(out.missingFestivalYears).toEqual([]);
+    expect(out.notes.some((n) => n.startsWith("No festival dates"))).toBe(false);
+  });
+
+  it("orders reaching into 2027 with no 2027 festivals entered: warned", () => {
+    const late = runEngine({ ...caseInput(), runWeek: "2026-W52" });
+    expect(late.missingFestivalYears).toEqual([2027]);
+    expect(late.notes).toContain(
+      "No festival dates entered for 2027: orders for those weeks get no festival uplift. Raghav: add them in Settings → Festivals & holds.",
+    );
+  });
+});
