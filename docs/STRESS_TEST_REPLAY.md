@@ -116,6 +116,22 @@ A bootstrap clustered by supplier gives intervals close to the by-SKU bootstrap 
 
 Item 3 also raises a **design question for the live desk**, outside the replay. With the default band, most perishable weeks produce an infeasible card. Either the perishable maximum or MOQ defaults need real numbers, or the queue will be mostly infeasible cards. That is a business number (D18), so it's listed as a question, not a change.
 
+## After C-033 (built 24 Oct 2026)
+
+The same scenarios, re-run with C-031 B, the tie rule, the C-032 drift limit and every C-033 refinement. The synthetic master now carries an MOQ (= standard quantity), because perishables without one are left out.
+
+| Scenario | Verdict, cards skipped | Verdict, MOQ ordered | What changed |
+|---|---|---|---|
+| S0 clean | FAIL (rules 573 stockout weeks vs 75) | **PASS** (0 vs 75; write-offs 99 vs 1,927) | The policy decides the perishable verdict (F1) |
+| S1 shrinkage 2%/yr | FAIL | PASS | Same as S0 |
+| S2 shrinkage 6%/yr | FAIL | PASS | Same as S0 |
+| S3 10% of receipts missing | **NOT DECIDABLE** (stock from nowhere = 10.7% of receipts; 49 SKUs left out) | NOT DECIDABLE | Previously INCONCLUSIVE, tilted towards the rules (F3) |
+| S4 shelf life blank (true 12) | INCONCLUSIVE (21 perishables left out; no write-offs left to compare) | INCONCLUSIVE | The invented write-offs no longer count (F5) |
+| S5 shelf life blank (true 6) | INCONCLUSIVE (24 left out) | INCONCLUSIVE | Same as S4 |
+| S6 lean Raghav | FAIL (rules worse: 505 vs 0) | **INCONCLUSIVE** (0 vs 0, 0 vs 0) | Previously FAIL on "0 vs 0 write-offs" (F6) |
+
+Against the truth, the moq verdicts are right: in S0–S2 the rules really do have fewer lost-sales weeks and write-offs than history. The skip verdicts are right too: skipping infeasible cards really does lose sales.
+
 ## Limits of this test
 
 - One synthetic world, one seed and simple demand (no promotions, no SKU launches). It tests the method's logic, not Freshroots' numbers.

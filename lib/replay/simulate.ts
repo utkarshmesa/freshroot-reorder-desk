@@ -1,10 +1,10 @@
 // The weekly stock simulator (REPLAY_SPEC §3). Pure and deterministic.
 // Order within a week: receipts arrive → demand is served oldest-first (FIFO) → lots age a week →
 // perishable lots that reach the shelf life are written off → Sunday on-hand is recorded.
-import { isStockoutWeek } from "@/lib/outcomes";
+import { isLowCoverWeek, isStockoutWeek } from "@/lib/outcomes";
 import type { IsoWeek } from "@/lib/isoweek";
 
-export type SimWeek = { week: IsoWeek; receipt: number; demand: number; sold: number; lost: number; writeOff: number; onHand: number; stockout: boolean };
+export type SimWeek = { week: IsoWeek; receipt: number; demand: number; sold: number; lost: number; writeOff: number; onHand: number; stockout: boolean; lowCover: boolean };
 export type SimTotals = {
   weeks: number;
   received: number;
@@ -12,11 +12,13 @@ export type SimTotals = {
   sold: number;
   lost: number;
   writeOff: number;
-  /** C-017: Sunday on-hand 0 or under one week of raw demand. */
+  /** C-031 B: Sunday on-hand under one unit, or at least one unit of demand lost. The gate measure. */
   stockoutWeeks: number;
-  /** Sunday on-hand exactly 0. */
+  /** C-017, reported alongside: Sunday on-hand 0 or under one week of raw demand. */
+  lowCoverWeeks: number;
+  /** Sunday on-hand under one unit. */
   zeroStockWeeks: number;
-  /** Weeks where some demand went unmet. */
+  /** Weeks where at least one whole unit of demand went unmet (C-033 item 5). */
   lostSalesWeeks: number;
   avgOnHand: number;
   closingOnHand: number;
@@ -51,7 +53,7 @@ export class Simulator {
     return this.lots.reduce((a, l) => a + l.qty, 0);
   }
 
-  /** `reference` is one week of raw clean demand (a12) for the stockout test (C-017); the same for both arms. */
+  /** `reference` is one week of raw clean demand (a12) for the low-cover test (C-017); the same for both arms. */
   step(w: { week: IsoWeek; receipt: number; demand: number; reference: number }): SimWeek {
     if (w.receipt > 0) this.lots.push({ qty: w.receipt, age: 0 });
     let need = Math.max(0, w.demand);
@@ -70,7 +72,7 @@ export class Simulator {
       this.lots = this.lots.filter((l) => l.age < this.shelfLife!);
     }
     const onHand = this.onHand;
-    const row: SimWeek = { week: w.week, receipt: w.receipt, demand: w.demand, sold, lost: need, writeOff, onHand, stockout: isStockoutWeek(onHand, w.reference) };
+    const row: SimWeek = { week: w.week, receipt: w.receipt, demand: w.demand, sold, lost: need, writeOff, onHand, stockout: isStockoutWeek(onHand, need), lowCover: isLowCoverWeek(onHand, w.reference) };
     this.rows.push(row);
     return row;
   }
@@ -89,8 +91,9 @@ export class Simulator {
       lost: sum((r) => r.lost),
       writeOff: sum((r) => r.writeOff),
       stockoutWeeks: sum((r) => (r.stockout ? 1 : 0)),
-      zeroStockWeeks: sum((r) => (r.onHand === 0 ? 1 : 0)),
-      lostSalesWeeks: sum((r) => (r.lost > 0 ? 1 : 0)),
+      lowCoverWeeks: sum((r) => (r.lowCover ? 1 : 0)),
+      zeroStockWeeks: sum((r) => (r.onHand < 1 ? 1 : 0)),
+      lostSalesWeeks: sum((r) => (r.lost >= 1 ? 1 : 0)),
       avgOnHand: this.rows.length ? sum((r) => r.onHand) / this.rows.length : 0,
       closingOnHand: this.onHand,
     };

@@ -53,7 +53,7 @@ export function makeWorld(o: WorldOpts = {}): World {
     const lead = 2;
     const shelf = perishable ? (o.trueShelfLife ?? 10) : null;
     const sku: SkuInput = {
-      id, name: id, category: null, status: "active", firstSaleWeek: null, launchEstimateWk: null, stdQty: std, moq: null, packSize: null,
+      id, name: id, category: null, status: "active", firstSaleWeek: null, launchEstimateWk: null, stdQty: std, moq: std, packSize: null,
       leadTimeWks: lead, shelfLifeWks: perishable && (o.shelfLifeInMaster ?? true) ? shelf : null, perishable, unitCostInr: null, supplierId: `SUP${sup}`,
     };
     let lots: Array<{ q: number; a: number }> = [{ q: base * 6, a: 0 }];

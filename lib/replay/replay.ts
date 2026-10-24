@@ -59,10 +59,23 @@ export type SkuReplay = {
   rules: ArmResult | null;
   weeklyTriage: Array<{ week: IsoWeek; triage: Recommendation["triage"]; action: Recommendation["action"] }>;
   stats: { reorderWeeks: number; queueWeeks: number; autoWeeks: number; infeasibleWeeks: number; borderlineWeeks: number; hdWithUplift: number; hdBelowNormal: number; imputedWeeks: number };
-  qa: { trackingMeanAbs: number | null; trackingRelative: number | null; trackedWeeks: number; inferredLossSigned: number } | null;
+  /** inferredLossSigned: Σ (last Sunday + receipts − net sales − this Sunday) over weeks with both Sundays known; receiptsChecked: receipts in those weeks. */
+  qa: { trackingMeanAbs: number | null; trackingRelative: number | null; trackedWeeks: number; inferredLossSigned: number; receiptsChecked: number } | null;
   /** No receipts at all for this SKU across the data: left out of the comparison (it can't be told from a missing file). */
   noReceipts: boolean;
+  /** Why the SKU is left out of the gate comparison (C-033), or null when it counts. */
+  excluded: Exclusion | null;
 };
+
+/**
+ * no_receipts: nothing received in the whole export (can't be told from a missing file).
+ * no_shelf_life / no_moq: a perishable whose write-offs or orders would rest on a D18 default (C-033 items 2–3).
+ * unexplained_gain: real stock rose more than receipts explain, so receipts are missing (C-033 item 1).
+ */
+export type Exclusion = "no_receipts" | "no_shelf_life" | "no_moq" | "unexplained_gain";
+
+/** Stock that appears from nowhere beyond this share of receipts means receipts are missing (C-033 item 1). */
+export const MAX_UNEXPLAINED_GAIN = 0.03;
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 
@@ -92,7 +105,7 @@ export function replaySku(d: SkuData, o: ReplayOptions): SkuReplay {
   const reading = o.reading ?? "any";
   const sku = d.sku;
   const shelfLife = sku.perishable ? (sku.shelfLifeWks ?? 2 * rules.defaults.perishableMaxWks) : null;
-  const assumed = sku.perishable && sku.shelfLifeWks === null ? ["shelf_life"] : [];
+  const assumed = sku.perishable ? [...(sku.shelfLifeWks === null ? ["shelf_life"] : []), ...(sku.moq === null ? ["moq"] : [])] : [];
   const idx = new Map(weeks.map((w, i) => [w, i]));
 
   // Actual net sales per week, and actual distributor rows per week (to rebuild the rules arm's history).
@@ -151,7 +164,9 @@ export function replaySku(d: SkuData, o: ReplayOptions): SkuReplay {
     stats: { reorderWeeks: 0, queueWeeks: 0, autoWeeks: 0, infeasibleWeeks: 0, borderlineWeeks: 0, hdWithUplift: 0, hdBelowNormal: 0, imputedWeeks },
     qa: null,
     noReceipts: receipts.every((x) => x === 0),
+    excluded: null,
   };
+  result.excluded = result.noReceipts ? "no_receipts" : sku.perishable && sku.shelfLifeWks === null ? "no_shelf_life" : sku.perishable && sku.moq === null ? "no_moq" : null;
   if (weeks.length <= warmup || stock.source === "none") return result;
   const opening = stock.onHand[warmup - 1]!;
   const weeklyDemand = mean(demand.slice(0, warmup));
@@ -174,12 +189,19 @@ export function replaySku(d: SkuData, o: ReplayOptions): SkuReplay {
   // Method QA (REPLAY_SPEC §4): how far the simulated actual arm drifts from the real SAP stock, and the
   // inferred loss in the real history (C-014 option A: positive residuals only shown here, signed in the JSON).
   let inferredLoss = 0;
+  let receiptsChecked = 0;
   for (let i = warmup; i < weeks.length; i++) {
     const prev = d.stockHistory[weeks[i - 1]!];
     const now = d.stockHistory[weeks[i]!];
-    if (prev !== undefined && now !== undefined) inferredLoss += prev + receipts[i]! - net[i]! - now;
+    if (prev !== undefined && now !== undefined) {
+      inferredLoss += prev + receipts[i]! - net[i]! - now;
+      receiptsChecked += receipts[i]!;
+    }
   }
-  result.qa = { trackingMeanAbs: gapWeeks ? gap / gapWeeks : null, trackingRelative: realSum > 0 ? gap / realSum : null, trackedWeeks: gapWeeks, inferredLossSigned: inferredLoss };
+  result.qa = { trackingMeanAbs: gapWeeks ? gap / gapWeeks : null, trackingRelative: realSum > 0 ? gap / realSum : null, trackedWeeks: gapWeeks, inferredLossSigned: inferredLoss, receiptsChecked };
+  // A negative loss is stock from nowhere: receipts the export doesn't have. The actual arm would starve
+  // for no real reason and flatter the rules (stress test F3), so the SKU can't be judged.
+  if (result.excluded === null && inferredLoss < -MAX_UNEXPLAINED_GAIN * Math.max(receiptsChecked, 1)) result.excluded = "unexplained_gain";
 
   // ---- Rules arm: the engine every Monday on what the rules would have seen.
   const sim = new Simulator({ opening, shelfLifeWks: shelfLife, weeklyDemand });
@@ -271,8 +293,9 @@ export function replaySku(d: SkuData, o: ReplayOptions): SkuReplay {
 
 // ---------- across SKUs ----------
 
-export type Totals = { stockoutWeeks: number; zeroStockWeeks: number; lostSalesWeeks: number; lost: number; writeOff: number; avgOnHand: number; unitsOrdered: number; orders: number };
+export type Totals = { stockoutWeeks: number; lowCoverWeeks: number; zeroStockWeeks: number; lostSalesWeeks: number; lost: number; writeOff: number; avgOnHand: number; unitsOrdered: number; orders: number };
 export type Interval = { estimate: number; low: number; high: number };
+type Diffs = { stockoutWeeks: Interval; lowCoverWeeks: Interval; lostSalesWeeks: Interval; writeOff: Interval; lost: Interval };
 export type ReplaySummary = {
   reading: Reading;
   infeasible: "skip" | "moq";
@@ -280,22 +303,32 @@ export type ReplaySummary = {
   compared: number;
   actual: Totals;
   rules: Totals;
-  diff: { stockoutWeeks: Interval; lostSalesWeeks: Interval; writeOff: Interval; lost: Interval };
+  /** 95% bootstrap over SKUs: the verdict's intervals. */
+  diff: Diffs;
+  /** The same, resampling suppliers (C-033 item 7): a check on correlated demand, not part of the verdict. */
+  diffBySupplier: Diffs;
+  suppliers: number;
   replayWeeks: number;
   firstWeek: IsoWeek | null;
   lastWeek: IsoWeek | null;
   load: { avgQueue: number; maxQueue: number; avgAuto: number; avgSpotChecks: number };
+  /**
+   * unexplainedChange: Σ inferred loss / Σ receipts over SKUs with weekly stock history (+ = loss, − = stock from
+   * nowhere; null = not checkable). drift: mean drift of the actual arm from real stock, non-perishables (C-032).
+   */
+  qa: { unexplainedChange: number | null; drift: number | null; orderedSupplied: boolean };
   verdict: Verdict;
   leadTimeExtraWks: number;
 };
 
 export type Verdict = { result: "PASS" | "FAIL" | "INCONCLUSIVE" | "NOT DECIDABLE"; reasons: string[] };
 
-/** Largest acceptable drift of the simulated actual arm from real SAP stock, as a share of real on-hand. */
+/** Largest acceptable drift of the simulated actual arm from real SAP stock (non-perishables, C-032), as a share of real on-hand. */
 export const MAX_TRACKING_GAP = 0.25;
 
 const total = (xs: ArmResult[]): Totals => ({
   stockoutWeeks: xs.reduce((a, x) => a + x.stockoutWeeks, 0),
+  lowCoverWeeks: xs.reduce((a, x) => a + x.lowCoverWeeks, 0),
   zeroStockWeeks: xs.reduce((a, x) => a + x.zeroStockWeeks, 0),
   lostSalesWeeks: xs.reduce((a, x) => a + x.lostSalesWeeks, 0),
   lost: xs.reduce((a, x) => a + x.lost, 0),
@@ -323,14 +356,21 @@ export function bootstrapSum(diffs: number[], seed = 20261207, iterations = 2000
 /** One year of simulated Mondays is the least that can speak for a 3-year history (smoke runs fall below it). */
 export const MIN_DECIDABLE_WEEKS = 52;
 
+const EXCLUSION_TEXT: Record<Exclusion, string> = {
+  no_receipts: "no receipts at all in the export",
+  no_shelf_life: "perishable with no shelf life in the SKU master (write-offs would rest on an assumed shelf life)",
+  no_moq: "perishable with no MOQ in the SKU master (orders would rest on an assumed MOQ)",
+  unexplained_gain: `real stock rose more than receipts explain (over ${MAX_UNEXPLAINED_GAIN * 100}% of receipts): receipts are missing`,
+};
+const listIds = (ids: string[]) => (ids.length > 20 ? `${ids.slice(0, 20).join(", ")} and ${ids.length - 20} more` : ids.join(", "));
+
 export function replayAll(data: SkuData[], o: ReplayOptions): ReplaySummary {
   const reading = o.reading ?? "any";
   const infeasible = o.infeasible ?? "skip";
   const skus = data.map((d) => replaySku(d, { ...o, reading, infeasible }));
-  const both = skus.filter((s) => s.actual && s.rules && !s.noReceipts);
+  const both = skus.filter((s) => s.actual && s.rules && s.excluded === null);
   const actual = total(both.map((s) => s.actual!));
   const rules = total(both.map((s) => s.rules!));
-  const diffs = (f: (a: ArmResult) => number) => both.map((s) => f(s.rules!) - f(s.actual!));
   const warmup = o.warmupWks ?? 13;
   const replayWeeks = Math.max(0, o.weeks.length - warmup);
 
@@ -344,19 +384,43 @@ export function replayAll(data: SkuData[], o: ReplayOptions): ReplaySummary {
   }
   const counts = [...perWeek.values()];
 
+  // Intervals over SKUs, and over suppliers (a SKU with no supplier is its own cluster).
+  const supplierOf = new Map(data.map((d) => [d.sku.id, d.sku.supplierId ?? `_sku:${d.sku.id}`]));
+  const clusters = [...new Set(both.map((s) => supplierOf.get(s.skuId)!))];
+  const intervals = (bySupplier: boolean): Diffs => {
+    const one = (f: (a: ArmResult) => number) => {
+      const perSku = both.map((s) => ({ c: supplierOf.get(s.skuId)!, d: f(s.rules!) - f(s.actual!) }));
+      return bootstrapSum(bySupplier ? clusters.map((c) => perSku.filter((x) => x.c === c).reduce((a, x) => a + x.d, 0)) : perSku.map((x) => x.d));
+    };
+    return { stockoutWeeks: one((a) => a.stockoutWeeks), lowCoverWeeks: one((a) => a.lowCoverWeeks), lostSalesWeeks: one((a) => a.lostSalesWeeks), writeOff: one((a) => a.writeOff), lost: one((a) => a.lost) };
+  };
+  const diff = intervals(false);
+  const diffBySupplier = intervals(true);
+
+  // Data QA. Missing receipts are judged on every SKU with weekly stock history, compared or not.
+  const withHistory = skus.filter((s) => s.qa && s.qa.trackedWeeks > 0 && !s.noReceipts);
+  const checkedReceipts = withHistory.reduce((a, s) => a + s.qa!.receiptsChecked, 0);
+  const unexplainedChange = withHistory.length ? withHistory.reduce((a, s) => a + s.qa!.inferredLossSigned, 0) / Math.max(checkedReceipts, 1) : null;
+  const tracked = both.filter((s) => !s.perishable && s.qa?.trackingRelative !== null && s.qa?.trackingRelative !== undefined);
+  const drift = tracked.length ? mean(tracked.map((s) => s.qa!.trackingRelative!)) : null;
+  const orderedSupplied = data.some((d) => d.ordered && Object.keys(d.ordered).length > 0);
+
   const reasons: string[] = [];
   let result: Verdict["result"];
-  const diff = { stockoutWeeks: bootstrapSum(diffs((a) => a.stockoutWeeks)), lostSalesWeeks: bootstrapSum(diffs((a) => a.lostSalesWeeks)), writeOff: bootstrapSum(diffs((a) => a.writeOff)), lost: bootstrapSum(diffs((a) => a.lost)) };
-  const tracked = both.filter((s) => s.qa?.trackingRelative !== null && s.qa?.trackingRelative !== undefined);
-  const drift = tracked.length ? mean(tracked.map((s) => s.qa!.trackingRelative!)) : null;
-  const decide = (stockout: keyof typeof diff, label: string): Verdict["result"] => {
-    const fewerStockouts = rules[stockout as "stockoutWeeks"] < actual[stockout as "stockoutWeeks"];
+  // C-031: stockouts must be no worse (the interval may not show the rules worse); write-offs strictly fewer and
+  // clear of zero. A measure where both arms are 0 has nothing to show: INCONCLUSIVE, never FAIL (C-033 item 4).
+  const decide = (): Verdict["result"] => {
+    const noWorse = rules.stockoutWeeks <= actual.stockoutWeeks;
+    const noWriteOffs = rules.writeOff === 0 && actual.writeOff === 0;
     const fewerWriteOffs = rules.writeOff < actual.writeOff;
-    const significant = diff[stockout].high < 0 && diff.writeOff.high < 0;
+    const significant = diff.stockoutWeeks.high <= 0 && diff.writeOff.high < 0;
     reasons.push(
-      `${label}: rules ${rules[stockout as "stockoutWeeks"]} vs actual ${actual[stockout as "stockoutWeeks"]} (${fewerStockouts ? "fewer" : "not fewer"}); write-off units rules ${round(rules.writeOff)} vs actual ${round(actual.writeOff)} (${fewerWriteOffs ? "fewer" : "not fewer"}); ${significant ? "both differences clear of zero at 95%" : "interval includes no difference"}.`,
+      `Stockout weeks (C-031: empty shelf or lost sales): rules ${rules.stockoutWeeks} vs actual ${actual.stockoutWeeks} (${noWorse ? "no worse" : "worse"}); write-off units rules ${round(rules.writeOff)} vs actual ${round(actual.writeOff)} (${noWriteOffs ? "no write-offs in either arm: nothing to improve" : fewerWriteOffs ? "fewer" : "not fewer"}); ${significant ? "both clear at 95%" : "the 95% interval includes no difference or worse"}.`,
     );
-    return !(fewerStockouts && fewerWriteOffs) ? "FAIL" : significant ? "PASS" : "INCONCLUSIVE";
+    if (!noWorse) return "FAIL";
+    if (noWriteOffs) return "INCONCLUSIVE";
+    if (!fewerWriteOffs) return "FAIL";
+    return significant ? "PASS" : "INCONCLUSIVE";
   };
   if (replayWeeks < MIN_DECIDABLE_WEEKS) {
     result = "NOT DECIDABLE";
@@ -367,21 +431,26 @@ export function replayAll(data: SkuData[], o: ReplayOptions): ReplaySummary {
   } else if (o.missingWeeks?.length) {
     result = "NOT DECIDABLE";
     reasons.push(`The export has no sales at all for ${o.missingWeeks.join(", ")}: a missing week would be read as zero demand. Re-export.`);
+  } else if (unexplainedChange !== null && unexplainedChange < -MAX_UNEXPLAINED_GAIN) {
+    result = "NOT DECIDABLE";
+    reasons.push(`Across the export, stock appeared from nowhere equal to ${round(-unexplainedChange * 100)}% of receipts (limit ${MAX_UNEXPLAINED_GAIN * 100}%): receipts are missing, which would make manual planning look worse than it was. Re-export the receipts.`);
   } else if (both.length === 0) {
     result = "NOT DECIDABLE";
-    reasons.push("No SKU has both arms: the actual arm needs stock history (or one snapshot) and receipts history.");
+    reasons.push("No SKU can be compared: each needs stock history (or one snapshot), receipts and, for perishables, a shelf life and MOQ.");
   } else if (drift !== null && drift > MAX_TRACKING_GAP) {
     result = "NOT DECIDABLE";
-    reasons.push(`The simulated actual arm drifts ${Math.round(drift * 100)}% from the real SAP stock on average (limit ${MAX_TRACKING_GAP * 100}%): the simulator doesn't represent the history well enough to judge.`);
+    reasons.push(`The simulated actual arm drifts ${Math.round(drift * 100)}% from the real SAP stock on non-perishables (limit ${MAX_TRACKING_GAP * 100}%): the simulator doesn't represent the history well enough to judge.`);
   } else {
-    result = decide("stockoutWeeks", "Stockout weeks (C-017)");
-    const alt = decide("lostSalesWeeks", "Weeks with lost sales (C-031 proposed)");
-    reasons.push(`Under the C-031 definition the result would be ${alt}.`);
+    result = decide();
   }
+  reasons.push(infeasible === "skip" ? "Infeasible perishable cards: skipped (the rules as written)." : "Infeasible perishable cards: ordered at the MOQ.");
+  if (!orderedSupplied) reasons.push("ordered_units was not supplied, so manual planning's lost sales are probably under-counted (about half in the stress test). This works against the rules: an INCONCLUSIVE may hide a real improvement.");
   const noArm = skus.filter((s) => !(s.actual && s.rules)).length;
-  const noRec = skus.filter((s) => s.actual && s.rules && s.noReceipts).length;
   if (noArm) reasons.push(`${noArm} SKU(s) left out of the comparison (no stock history or too few weeks).`);
-  if (noRec) reasons.push(`${noRec} SKU(s) left out because they have no receipts at all in the export.`);
+  for (const why of Object.keys(EXCLUSION_TEXT) as Exclusion[]) {
+    const ids = skus.filter((s) => s.actual && s.rules && s.excluded === why).map((s) => s.skuId);
+    if (ids.length) reasons.push(`${ids.length} SKU(s) left out because of ${EXCLUSION_TEXT[why]}: ${listIds(ids)}.`);
+  }
 
   return {
     reading,
@@ -391,6 +460,8 @@ export function replayAll(data: SkuData[], o: ReplayOptions): ReplaySummary {
     actual,
     rules,
     diff,
+    diffBySupplier,
+    suppliers: clusters.length,
     replayWeeks,
     firstWeek: o.weeks[warmup] ?? null,
     lastWeek: o.weeks.at(-1) ?? null,
@@ -400,6 +471,7 @@ export function replayAll(data: SkuData[], o: ReplayOptions): ReplaySummary {
       avgAuto: mean(counts.map((c) => c.auto)),
       avgSpotChecks: mean(counts.map((c) => Math.min(o.rules.spotChecks, c.auto))),
     },
+    qa: { unexplainedChange, drift, orderedSupplied },
     verdict: { result, reasons },
     leadTimeExtraWks: o.leadTimeExtraWks ?? 0,
   };

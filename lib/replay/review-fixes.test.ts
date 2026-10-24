@@ -33,7 +33,7 @@ const opts = (w: IsoWeek[]) => ({ rules: DEFAULT_RULES, weeks: w, events: [], di
 // The perishable PASS fixture from replay.test.ts: lumpy actual receipts vs steady rule orders.
 const W = weeksOf(13 + 64);
 const lumpy: SkuData = {
-  sku: sku({ perishable: true, shelfLifeWks: 8 }),
+  sku: sku({ perishable: true, shelfLifeWks: 8, moq: 100 }),
   sales: flat(W, 100),
   receipts: Object.fromEntries([13, 29, 45, 61].map((i) => [W[i]!, 1600])),
   stockHistory: { [W[12]!]: 200 },
@@ -67,7 +67,7 @@ describe("finding 2: no receipts history → no verdict", () => {
     const noRec: SkuData = { ...lumpy, sku: sku({ id: "S2" }), sales: flat(W, 100, "S2"), receipts: {} };
     const s = replayAll([lumpy, noRec], opts(W));
     expect(s.compared).toBe(1);
-    expect(s.verdict.reasons.join(" ")).toMatch(/1 SKU\(s\) left out because they have no receipts/);
+    expect(s.verdict.reasons.join(" ")).toMatch(/1 SKU\(s\) left out because of no receipts at all in the export: S2\./);
   });
 });
 
@@ -105,7 +105,7 @@ describe("finding 5: significance", () => {
   it("INCONCLUSIVE when the totals improve but the interval includes no difference", () => {
     // One SKU where the rules win clearly, one where they lose almost as much.
     const worse: SkuData = {
-      sku: sku({ id: "S2", perishable: true, shelfLifeWks: 8 }),
+      sku: sku({ id: "S2", perishable: true, shelfLifeWks: 8, moq: 100 }),
       sales: flat(W, 100, "S2"),
       receipts: Object.fromEntries(W.slice(13).map((x) => [x, 100])),
       stockHistory: { [W[12]!]: 200 },
@@ -116,19 +116,11 @@ describe("finding 5: significance", () => {
   });
 });
 
-describe("findings 6 and 7: missing weeks and simulator drift block the verdict", () => {
+describe("findings 6 and 7: missing weeks and simulator drift block the verdict (drift: c033.test.ts, C-032)", () => {
   it("a week with no sales rows at all is NOT DECIDABLE", () => {
     const s = replayAll([lumpy], { ...opts(W), missingWeeks: ["2025-W30"] });
     expect(s.verdict.result).toBe("NOT DECIDABLE");
     expect(s.verdict.reasons[0]).toMatch(/2025-W30/);
-  });
-
-  it("an actual arm that can't track the real stock is NOT DECIDABLE", () => {
-    // Real stock history says the shelf held 5,000 every week; the receipts can't explain that.
-    const drifting: SkuData = { ...lumpy, stockHistory: Object.fromEntries(W.map((x) => [x, 5000])) };
-    const s = replayAll([drifting], opts(W));
-    expect(s.verdict.result).toBe("NOT DECIDABLE");
-    expect(s.verdict.reasons[0]).toMatch(/drifts/);
   });
 });
 

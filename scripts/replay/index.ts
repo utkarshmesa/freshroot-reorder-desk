@@ -1,6 +1,9 @@
 // Day-45 replay runner (REPLAY_SPEC). Reads files from a folder, writes results.json + report.md.
 //
-//   npm run replay -- --dir path/to/export [--out replay-out/name] [--warmup 13]
+//   npm run replay -- --dir path/to/export --infeasible skip|moq [--out replay-out/name] [--warmup 13]
+//
+// --infeasible is what Raghav does with an infeasible perishable card: skip (the rules as written) or order the
+// MOQ. It is required: the perishable verdict depends on it (C-033 item 3). The report shows both.
 //
 // Files are recognised by their headers, as in the app's upload:
 //   sales (sales_weekly format, or the case weekly_sales), sku_master (or case sku_master),
@@ -28,7 +31,12 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
-const dir = arg("dir") ?? fail("Usage: npm run replay -- --dir <folder with the export files> [--out <folder>] [--warmup 13]");
+const USAGE = "Usage: npm run replay -- --dir <folder with the export files> --infeasible skip|moq [--out <folder>] [--warmup 13]";
+const dir = arg("dir") ?? fail(USAGE);
+const policy = arg("infeasible");
+if (policy !== "skip" && policy !== "moq") fail(`--infeasible must be skip or moq (what Raghav does with an infeasible perishable card).
+${USAGE}`);
+const otherPolicy = policy === "skip" ? "moq" : "skip";
 const outDir = arg("out", path.join("replay-out", new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")))!;
 const warmupWks = Number(arg("warmup", "13"));
 
@@ -111,14 +119,18 @@ const data: SkuData[] = skus.map((s) => ({
 
 const base = { rules: DEFAULT_RULES, weeks, events, distributors, warmupWks, receiptsKnown: files.receiptsFile, missingWeeks };
 const t0 = Date.now();
-const main = replayAll(data, { ...base, reading: "any", infeasible: "skip" });
-const late = replayAll(data, { ...base, reading: "any", infeasible: "skip", leadTimeExtraWks: 1 });
-const readings = [main, replayAll(data, { ...base, reading: "share", infeasible: "skip" }), replayAll(data, { ...base, reading: "literal", infeasible: "skip" })];
-const moq = replayAll(data, { ...base, reading: "any", infeasible: "moq" });
-const verdict = robustVerdict(main, late);
+const policyRun = (infeasible: "skip" | "moq") => {
+  const main = replayAll(data, { ...base, reading: "any", infeasible });
+  const late = replayAll(data, { ...base, reading: "any", infeasible, leadTimeExtraWks: 1 });
+  return { main, late, verdict: robustVerdict(main, late) };
+};
+const headline = policyRun(policy);
+const other = policyRun(otherPolicy);
+const { main, late, verdict } = headline;
+const readings = [main, replayAll(data, { ...base, reading: "share", infeasible: policy }), replayAll(data, { ...base, reading: "literal", infeasible: policy })];
 
 // Method QA. Conservation is a regression guard for the simulator (it holds by construction when the code is right).
-const arms = [main, late, ...readings.slice(1), moq].flatMap((s) => s.skus.flatMap((x) => [x.actual, x.rules])).filter((a) => a !== null);
+const arms = [main, late, other.main, other.late, ...readings.slice(1)].flatMap((s) => s.skus.flatMap((x) => [x.actual, x.rules])).filter((a) => a !== null);
 const span53 = weeks.filter((w) => w.endsWith("W53"));
 const qa = {
   conservation: arms.every((a) => Math.abs(a.opening + a.received - a.sold - a.writeOff - a.closingOnHand) < 1e-6),
@@ -136,7 +148,7 @@ const dataNote = [
 ].join(" ");
 const title = caseMode ? "Replay smoke test: case data (NOT the day-45 gate)" : "Day-45 gate: 3-year replay";
 mkdirSync(outDir, { recursive: true });
-writeFileSync(path.join(outDir, "report.md"), renderReport({ title, dataNote, main, late, verdict, readings, moq, qa }));
-writeFileSync(path.join(outDir, "results.json"), JSON.stringify({ dataNote, verdict, qa, main, late: { rules: late.rules, verdict: late.verdict }, readings: readings.map((r) => ({ reading: r.reading, rules: r.rules, actual: r.actual })), moq: { rules: moq.rules } }, null, 2));
+writeFileSync(path.join(outDir, "report.md"), renderReport({ title, dataNote, headline, other, readings, qa }));
+writeFileSync(path.join(outDir, "results.json"), JSON.stringify({ dataNote, policy, verdict, qa, main, late: { rules: late.rules, verdict: late.verdict }, otherPolicy: { policy: otherPolicy, verdict: other.verdict, rules: other.main.rules }, readings: readings.map((r) => ({ reading: r.reading, rules: r.rules, actual: r.actual })) }, null, 2));
 console.log(`${verdict.result}: ${verdict.reasons.join(" ")}`);
 console.log(`Wrote ${path.join(outDir, "report.md")}`);

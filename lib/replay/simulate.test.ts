@@ -6,11 +6,11 @@ describe("Simulator (REPLAY_SPEC §3)", () => {
   it("non-perishable: receipts arrive first, demand is served, shortfall is lost, nothing expires", () => {
     const s = new Simulator({ opening: 100, shelfLifeWks: null });
     // week 1: no receipt, demand 60 → on-hand 40
-    expect(s.step({ week: "2026-W01", receipt: 0, demand: 60, reference: 50 })).toMatchObject({ sold: 60, lost: 0, writeOff: 0, onHand: 40, stockout: true }); // 40 < 50 = less than a week's cover
+    expect(s.step({ week: "2026-W01", receipt: 0, demand: 60, reference: 50 })).toMatchObject({ sold: 60, lost: 0, writeOff: 0, onHand: 40, stockout: false, lowCover: true }); // 40 < 50: low cover, nothing lost
     // week 2: receipt 100 arrives first, demand 150 → 140 available, sell 140, lose 10
-    expect(s.step({ week: "2026-W02", receipt: 100, demand: 150, reference: 50 })).toMatchObject({ sold: 140, lost: 10, onHand: 0, stockout: true });
+    expect(s.step({ week: "2026-W02", receipt: 100, demand: 150, reference: 50 })).toMatchObject({ sold: 140, lost: 10, onHand: 0, stockout: true, lowCover: true });
     // week 3: receipt 200, demand 50 → 150 left, more than a week of cover
-    expect(s.step({ week: "2026-W03", receipt: 200, demand: 50, reference: 50 })).toMatchObject({ sold: 50, lost: 0, onHand: 150, stockout: false });
+    expect(s.step({ week: "2026-W03", receipt: 200, demand: 50, reference: 50 })).toMatchObject({ sold: 50, lost: 0, onHand: 150, stockout: false, lowCover: false });
   });
 
   it("perishable: oldest stock sells first and lots expire at the shelf life", () => {
@@ -40,11 +40,12 @@ describe("Simulator (REPLAY_SPEC §3)", () => {
     expect(t.lost).toBe(rows.reduce((a, r) => a + r.lost, 0));
   });
 
-  it("counts stockout weeks with the C-017 definition (on-hand 0 or under one week of raw demand)", () => {
+  it("counts low-cover weeks with the C-017 definition (on-hand 0 or under one week of raw demand)", () => {
     const s = new Simulator({ opening: 0, shelfLifeWks: null });
-    s.step({ week: "2026-W01", receipt: 0, demand: 0, reference: 0 }); // on-hand 0 → stockout even with no demand
-    s.step({ week: "2026-W02", receipt: 100, demand: 0, reference: 100 }); // exactly one week of cover → not a stockout
-    s.step({ week: "2026-W03", receipt: 0, demand: 1, reference: 100 }); // 99 < 100 → stockout
-    expect(s.totals().stockoutWeeks).toBe(2);
+    s.step({ week: "2026-W01", receipt: 0, demand: 0, reference: 0 }); // on-hand 0 → low cover even with no demand
+    s.step({ week: "2026-W02", receipt: 100, demand: 0, reference: 100 }); // exactly one week of cover → not low
+    s.step({ week: "2026-W03", receipt: 0, demand: 1, reference: 100 }); // 99 < 100 → low cover
+    expect(s.totals().lowCoverWeeks).toBe(2);
+    expect(s.totals().stockoutWeeks).toBe(1); // C-031 B: only the empty shelf
   });
 });

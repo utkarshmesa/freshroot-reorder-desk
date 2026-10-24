@@ -40,9 +40,9 @@ Per SKU, per week, in order:
    - Shelf life is from the master.
    - If it's missing, it's 2 × the perishable max cover (D18: max = ½ shelf life, so 8 weeks by default), marked "assumed".
 4. The Sunday on-hand is recorded.
-5. **Stockout week**, reported three ways (C-031 is pending):
-   - C-017: on-hand 0, or under one week of raw clean a12;
-   - weeks with lost sales;
+5. **Stockout week** (C-031 B, the gate measure): Sunday on-hand under one unit, **or** at least one whole unit of demand lost that week (C-033 item 5). Reported alongside:
+   - low cover (the old C-017): on-hand 0, or under one week of raw clean a12, a warning only;
+   - weeks with lost sales (at least one whole unit);
    - weeks with zero on-hand.
 
    Both arms use the same reference series.
@@ -55,7 +55,7 @@ Per SKU, per week, in order:
 - that arm's in-transit orders, which stand in for open POs.
 
 It runs as a single SKU, with the real festivals and holds. Every recommendation is taken as approved at the engine's quantity, i.e. the rules as written. Two policies are reported separately:
-- **Infeasible perishable cards:** "skip" (the default, as written) and "order MOQ" (Raghav's usual choice).
+- **Infeasible perishable cards:** "skip" (as written) or "order MOQ". This is an explicit input to the gate run (`--infeasible skip|moq`, C-033 item 3). The headline verdict uses the chosen policy; the report shows the verdict under both.
 - **Tuesday deadline:** not modelled. All queue cards count as reviewed in time.
 
 ## 4. Outputs
@@ -66,7 +66,7 @@ Per SKU and in total, for each arm:
 - average on-hand units;
 - orders placed, and units ordered.
 
-**Gate verdict:** the rules arm must have **fewer total stockout weeks** AND **fewer total write-off units** than the actual arm. Each difference is reported with a 95% bootstrap interval over SKUs (seeded, so it can be reproduced). The verdict is printed as PASS / FAIL / NOT DECIDABLE, plus the reason.
+**Gate verdict:** the rules arm must have **no more stockout weeks** (C-031 tie rule) AND **fewer write-off units** than the actual arm. Each difference is reported with a 95% bootstrap interval over SKUs (seeded, so it can be reproduced), and over suppliers as a check (C-033 item 7). The verdict is printed as PASS / FAIL / INCONCLUSIVE / NOT DECIDABLE, plus the reason. Full rules in §6.
 
 **Calibration (START_PROMPT: D6 and D8):**
 - **D6 festival readings:**
@@ -79,13 +79,15 @@ Per SKU and in total, for each arm:
 - How often perishables are **infeasible**.
 
 **Method QA** (data:validate-data, run on real data before you see the report):
-- the actual arm simulated with real receipts should track the real stock history; the gap is the inferred loss (C-014);
+- the actual arm simulated with real receipts should track the real stock history (non-perishables, C-032); the gap is the inferred loss (C-014);
+- **net unexplained change** = Σ (last Sunday + receipts − net sales − this Sunday) ÷ receipts. Positive is loss (shrinkage, write-offs SAP doesn't export). Negative is stock from nowhere, i.e. missing receipts (C-033 item 1);
 - units are conserved: receipts in = sold + written off + change in on-hand;
 - no negative stock, every week present, W53 included.
 
 ## 5. Limits stated in every report
 - The simulation assumes approved orders arrive exactly after the lead time. Real supplier delays aren't modelled.
 - Demand in each arm doesn't react to that arm's own stockouts. Customers lost for good aren't modelled.
+- Without `ordered_units`, manual planning's lost sales are under-counted (about half in the stress test, docs/STRESS_TEST_REPLAY.md). This works against the rules; the report says so (C-033 item 6).
 - Before the real 3-year export arrives, any run is a **smoke test of the machinery only**.
 
 ## 6. Verdict rules (after the Milestone 4 review)
@@ -93,15 +95,18 @@ Per SKU and in total, for each arm:
   - fewer than 52 simulated weeks;
   - no receipts file;
   - any week in the span with no sales rows (a missing week isn't zero demand);
-  - no SKU with both arms;
-  - the simulated actual arm drifts more than 25% from the real SAP stock on average.
-- **PASS** needs both of these:
-  - fewer stockout weeks **and** fewer write-off units, with both 95% bootstrap intervals clear of zero;
-  - the same result with every rules-arm delivery **a week late**.
-
-  Better point estimates without those give **INCONCLUSIVE**. Otherwise **FAIL**.
-- SKUs with no receipts at all are left out, and the report lists them.
+  - across the export, stock appeared from nowhere above 3% of receipts (C-033 item 1);
+  - no SKU can be compared;
+  - the simulated actual arm drifts more than 25% from the real SAP stock on average, **non-perishables only** (C-032).
+- **FAIL** when the rules arm has more stockout weeks, or (with some write-offs) no fewer write-off units.
+- **INCONCLUSIVE** when neither arm has any write-offs ("nothing to improve", C-033 item 4), or when the 95% intervals don't show stockouts no worse (upper bound ≤ 0) **and** write-offs fewer (upper bound < 0).
+- **PASS** otherwise, and only if it also holds with every rules-arm delivery **a week late** (else INCONCLUSIVE).
+- **SKUs left out of the comparison, and listed** (C-033):
+  - no receipts at all;
+  - perishables with no shelf life in the master (item 2);
+  - perishables with no MOQ in the master (item 3);
+  - stock that appeared from nowhere above 3% of that SKU's receipts (item 1).
 - Several receipt or stock rows for one SKU-week are added together.
 - The rules arm starts with Raghav's orders already in transit, the ones that arrive in its first lead-time weeks.
 - When `ordered_units` is supplied, it is the demand; otherwise demand is imputed in empty-shelf weeks.
-- The 52-week minimum and the 25% drift limit are method choices (C-032).
+- The 52-week minimum, the 25% drift limit and the 3% unexplained-gain limit are method choices (C-032, C-033).

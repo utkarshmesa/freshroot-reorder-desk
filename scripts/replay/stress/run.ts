@@ -36,10 +36,14 @@ function run(name: string, wo: WorldOpts) {
   console.log(`\n### ${name}`);
   console.log(`truth (history):      lost-sales weeks ${fmt(tr.lostWeeks)}, lost units ${fmt(tr.lostUnits)}, write-off units ${fmt(tr.writeOff)}, shrink units ${fmt(tr.shrink)}`);
   console.log(`replay actual arm:    lost-sales weeks ${fmt(s.actual.lostSalesWeeks)}, lost units ${fmt(s.actual.lost)}, write-off units ${fmt(s.actual.writeOff)}`);
-  console.log(`replay rules arm:     lost-sales weeks ${fmt(s.rules.lostSalesWeeks)}, lost units ${fmt(s.rules.lost)}, write-off units ${fmt(s.rules.writeOff)}, C-017 weeks ${fmt(s.rules.stockoutWeeks)} (actual ${fmt(s.actual.stockoutWeeks)})`);
+  console.log(`replay rules arm:     lost-sales weeks ${fmt(s.rules.lostSalesWeeks)}, lost units ${fmt(s.rules.lost)}, write-off units ${fmt(s.rules.writeOff)}, C-031 stockout weeks ${fmt(s.rules.stockoutWeeks)} (actual ${fmt(s.actual.stockoutWeeks)})`);
   console.log(`drift (cumulative, current check): non-perishable ${perDrift(false)}%, perishable ${perDrift(true)}%   |   net unexplained change: ${fmt(net)} units = ${((net / rec) * 100).toFixed(1)}% of receipts (+ = loss, − = stock from nowhere)`);
   console.log(`lost-weeks diff CI: by SKU [${fmt(ciSku.low)}, ${fmt(ciSku.high)}] vs by supplier [${fmt(ciSup.low)}, ${fmt(ciSup.high)}] (estimate ${fmt(ciSku.estimate)})`);
-  console.log(`current verdict: ${s.verdict.result} — ${s.verdict.reasons[0]?.slice(0, 160)}`);
+  const moq = replayAll(w.data, { rules: DEFAULT_RULES, weeks: w.weeks, events: w.events, distributors: [], receiptsKnown: true, infeasible: "moq" });
+  const left = s.skus.filter((x) => x.excluded).reduce((m, x) => ({ ...m, [x.excluded!]: (m[x.excluded!] ?? 0) + 1 }), {} as Record<string, number>);
+  console.log(`compared ${s.compared}/${s.skus.length}; left out ${JSON.stringify(left)}; unexplained change ${s.qa.unexplainedChange === null ? "n/a" : (s.qa.unexplainedChange * 100).toFixed(1) + "%"}`);
+  console.log(`verdict (skip): ${s.verdict.result} — ${s.verdict.reasons[0]?.slice(0, 200)}`);
+  console.log(`verdict (moq):  ${moq.verdict.result} — ${moq.verdict.reasons[0]?.slice(0, 200)}`);
   return s;
 }
 

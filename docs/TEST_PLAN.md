@@ -173,7 +173,7 @@ Extra Zoho tests:
 | RN-14 | PO changed since Monday (C-025) | Integration | Procurement creates a PO for SKU013 on Mon 14:00 → at Send, the SKU013 line is `held_changed`, other DIST001 lines are sent; a PO for another SKU holds nothing |
 | RN-15 | Overdue PO line (C-026) | Unit | An open line past its expected delivery date → flag `overdue_po`, queue, P unchanged |
 | RN-06 | Blocked run | E2E | A blocked or unmapped-SKU run shows a status banner on Upload and Review with the reason and the blocked list |
-| OC-01 | Stockout week (C-017) | Unit | on-hand 0 → stockout; on-hand < raw a12 → stockout; a large open PO doesn't hide it; the festival uplift doesn't change it |
+| OC-01 | Stockout week (C-031 B) and low cover (C-017) | Unit | on-hand 0 → stockout; ≥ 1 lost unit → stockout; a lean shelf with nothing lost → not; a large open PO doesn't hide it; low cover = on-hand < raw a12, unaffected by the festival uplift |
 | OC-02 | Pilot vs manual rates | Unit | The same function gives identical results for both arms on mirrored fixtures |
 | OC-03 | Order speed | Unit | Working days from commit to `issued_at`; `skipped_pending` counted as not issued |
 | OC-04 | Shadow agreement (C-018) | Unit | Agreement % = approved unchanged / decided, unit-weighted |
@@ -194,7 +194,7 @@ Extra Zoho tests:
 ## 5. Not tested by automation (and why)
 - Real email delivery: integration tests assert `alert` rows and the mailer call; delivery is checked once manually.
 - Real Zoho beyond the `@zoho-live` suite: production org is never touched by tests.
-- Replay statistics: QA'd by the data:validate-data pass and the gate report. The engine and `lib/outcomes` inside it are unit-tested. The replay method itself is **[PENDING C-020]**: once it's decided, its simulator gets a hand-computed 3-SKU fixture test.
+- Replay statistics: QA'd by the data:validate-data pass and the gate report. The method (C-020) is unit-tested in `lib/replay/*.test.ts`: the simulator on hand-computed fixtures, the M4 review findings, and every C-031/C-032/C-033 rule (`c033.test.ts`). The method itself was stress-tested against a ground-truth world (`scripts/replay/stress`, docs/STRESS_TEST_REPLAY.md).
 
 ## 6. Exit checks per milestone
 | Milestone | Must be green |

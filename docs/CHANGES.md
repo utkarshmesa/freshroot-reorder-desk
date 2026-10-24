@@ -169,7 +169,7 @@ The replay already reports all three numbers, and prints the verdict under both 
 
 ## C-033: Replay refinements from the first-principles stress test
 
-**Status: Proposed. Needs your approval before it is built.** Evidence: docs/STRESS_TEST_REPLAY.md (synthetic ground-truth world; not Freshroots data). Affects C-020, C-031 and C-032. No business numbers change.
+**Status: Approved and built 24 Oct 2026** (all seven items; lib/replay, lib/outcomes, scripts/replay; tests in lib/replay/c033.test.ts). Item 3: the gate run needs `--infeasible skip|moq`; perishables with no MOQ in the master are left out. Item 4 applies to write-offs; for stockouts the C-031 tie rule already passes 0 vs 0. The live Outcomes page (Milestone 5) uses the same C-031 B definition from lib/outcomes. Evidence: docs/STRESS_TEST_REPLAY.md (synthetic ground-truth world; not Freshroots data). Affects C-020, C-031 and C-032. No business numbers change.
 
 | # | Change | Why |
 |---|---|---|

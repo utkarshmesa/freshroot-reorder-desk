@@ -355,7 +355,8 @@ All filter parameter names (status values, reference search, receipt date range)
 ## 8. Outcomes
 
 All outcome maths lives in one pure module, `lib/outcomes`, shared by the Outcomes page and the replay and applied identically to pilot and manual SKUs.
-- **Stockout week** (C-017): SKU-week with SAP on-hand = 0, or on-hand < 1 × raw clean a12, at the Sunday snapshot. "Cover" here means **shelf cover**: no open POs and no festival uplift. That keeps the metric independent of the engine's forecast, so it's fair to manual SKUs.
+- **Stockout week** (C-031 B, replaces C-017): SKU-week with SAP on-hand under one unit at the Sunday snapshot, **or** at least one whole unit of demand lost that week (ordered_units > shipped, when supplied). Open POs and the forecast play no part, so the metric is fair to manual SKUs.
+- **Low cover** (the old C-017, reported alongside as a warning): on-hand 0 or < 1 × raw clean a12. Lean perishable shelves dip below a week before each delivery by design, so this is not a stockout.
 - **Pilot vs manual:** same weeks; holdout list fixed at go-live; reported as rates (stockout weeks per SKU-week; loss as % of net units, since ₹ is often unavailable) and per rule version (D12). The statistical method is **[PENDING C-019]**.
 - **Order speed:** Monday upload commit → `draft_po.issued_at` (read back from Zoho), in working days. `skipped_pending` suppliers count as not issued.
 - **Rejection rate:** unit-weighted, plus spot-check results; alarm < 5% and > 40%.

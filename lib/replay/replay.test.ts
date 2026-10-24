@@ -114,7 +114,7 @@ describe("the gate verdict", () => {
   // Rules: steady small orders → fewer stockouts and fewer write-offs → PASS.
   const w = weeksOf(13 + 64);
   const receipts = Object.fromEntries([13, 29, 45, 61].map((i) => [w[i]!, 1600]));
-  const data: SkuData = { sku: sku({ perishable: true, shelfLifeWks: 8, stdQty: 100 }), sales: flatSales(w, 100), receipts, stockHistory: { [w[12]!]: 200 } };
+  const data: SkuData = { sku: sku({ perishable: true, shelfLifeWks: 8, stdQty: 100, moq: 100 }), sales: flatSales(w, 100), receipts, stockHistory: { [w[12]!]: 200 } };
 
   it("PASS when the rules beat the actual arm on both measures over a long enough replay", () => {
     const s = replayAll([data], opts(w));
@@ -132,12 +132,12 @@ describe("the gate verdict", () => {
     expect(s.verdict.reasons[0]).toMatch(/smoke test/);
   });
 
-  it("FAIL when the rules don't beat the actual arm", () => {
+  it("not a PASS when the actual arm is already perfect: nothing to improve (C-033 item 4; FAIL cases in c033.test.ts)", () => {
     // Actual receipts already perfect: 100 a week, no stockouts, nothing expires → rules can't do better.
     const perfect = Object.fromEntries(w.slice(13).map((x) => [x, 100]));
     const s = replayAll([{ ...data, receipts: perfect }], opts(w));
     expect(s.actual.stockoutWeeks + s.actual.writeOff).toBe(0);
-    expect(s.verdict.result).toBe("FAIL");
+    expect(s.verdict.result).toBe("INCONCLUSIVE");
   });
 });
 
