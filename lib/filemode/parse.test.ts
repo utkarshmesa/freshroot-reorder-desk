@@ -38,3 +38,17 @@ describe("readPositionFiles", () => {
     expect(readPositionFiles({ openPos: open("PO-1,DIST001,SKU001,2026-10-12,10,20,open,,"), receipts: null, runWeek: "2026-W43", skus: SKUS }).errors[0]).toMatch(/received more than ordered/);
   });
 });
+
+describe("the failsafe templates in data/templates", () => {
+  it("are the exact layouts the failsafe reads (empty is valid: no open POs)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const r = readPositionFiles({
+      openPos: parseCsv("open_pos_template.csv", readFileSync("data/templates/open_pos_template.csv", "utf8")),
+      receipts: parseCsv("receipts_since_monday_template.csv", readFileSync("data/templates/receipts_since_monday_template.csv", "utf8")),
+      runWeek: "2026-W43",
+      skus: SKUS,
+    });
+    expect(r.errors).toEqual([]);
+    expect(r.summary).toEqual({ openLines: 0, openUnits: 0, pos: 0 });
+  });
+});

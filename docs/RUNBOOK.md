@@ -343,7 +343,7 @@ Non-working days aren't in Settings yet (C-021, deferred to v1.1). Interim rule:
 
 The Zoho failsafe (C-039). Use it when the week is blocked by a Zoho problem (`zoho_*` reason) and it can't be fixed in time, or when Zoho isn't connected at all. The default stays fail-closed: nothing happens unless Deepa chooses this.
 
-1. **Procurement:** prepare the open purchase orders as at Monday 00:00 IST, from a Zoho export or their own list. Use CSV or XLSX with these columns:
+1. **Procurement:** prepare the open purchase orders as at Monday 00:00 IST, from a Zoho export or their own list. Start from `data/templates/open_pos_template.csv` (and `receipts_since_monday_template.csv`). Use CSV or XLSX with these columns:
    - `po_number, supplier_id, sku_id, po_date, ordered_units, received_units, status` (optional `expected_date, reference`).
    - Status uses Zoho's names: `open`, `partially_received`, `received`, `closed`, `cancelled`, `draft`, … An unknown status or SKU is refused, never guessed.
    - If goods arrived since Monday, also prepare a receipts file: `po_number, sku_id, receipt_date, received_units`.
