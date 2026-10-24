@@ -102,11 +102,26 @@ describe("Zoho failures block the run and alert (ZO-08, outage, ZO-10)", () => {
     expect(b).toMatchObject({ status: "blocked", error: { reason: "zoho_auth" }, alert: { kind: "run_blocked" }, recs: 0 });
   });
 
-  it("an outage that outlasts the retries", async () => {
+  it("F8: an outage is retried by the next cron cycles, and the run finishes when Zoho is back", async () => {
     for (let i = 0; i < 5; i++) z.script.push({ status: 503 });
     const id = await freshRun();
-    await run(id);
-    expect(await blocked(id)).toMatchObject({ status: "blocked", error: { reason: "zoho_unavailable" }, recs: 0 });
+    expect((await run(id)).status).toBe("retrying");
+    const { data: mid } = await service().from("run").select("status, error").eq("id", id).single();
+    expect(mid).toMatchObject({ error: { reason: "zoho_unavailable" } });
+    expect(mid!.status).not.toBe("blocked");
+    expect((await service().from("alert").select("id").eq("run_id", id)).data).toEqual([]);
+    expect((await run(id)).status).toBe("done"); // Zoho answers again
+  });
+
+  it("F8: an outage that outlasts about 30 minutes of retries blocks the run and alerts", async () => {
+    const id = await freshRun();
+    for (let attempt = 0; attempt < 8; attempt++) {
+      for (let i = 0; i < 5; i++) z.script.push({ status: 503 });
+      const r = await run(id);
+      if (r.status === "blocked") break;
+      z.script = [];
+    }
+    expect(await blocked(id)).toMatchObject({ status: "blocked", error: { reason: "zoho_unavailable" }, alert: { kind: "run_blocked" }, recs: 0 });
   });
 
   it("ZO-10 the call budget", async () => {

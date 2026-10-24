@@ -74,7 +74,14 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
           <button className="primary">Retry run</button>
         </form>
       )}
-      {!ready && run.status !== "blocked" && <div className="banner info">The run is in progress ({RUN_STEP[run.status] ?? run.status}). Reload in a minute.</div>}
+      {!ready && run.status !== "blocked" && (
+        <div className="banner info">
+          The run is in progress ({RUN_STEP[run.status] ?? run.status}).{" "}
+          {run.error?.reason === "zoho_unavailable"
+            ? "Zoho isn't answering; the system retries every 5 minutes for about half an hour, then alerts IT."
+            : "Reload in a minute."}
+        </div>
+      )}
 
       {ready && (
         <>

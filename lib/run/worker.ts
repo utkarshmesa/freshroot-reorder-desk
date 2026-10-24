@@ -36,6 +36,8 @@ const LLM_BUDGET_MS = 150_000;
 export const MAX_ATTEMPTS = 3;
 /** Zoho calls allowed per run (BUILD_PLAN §9), across all steps and invocations. */
 export const RUN_CALL_BUDGET = 300;
+/** A Zoho outage is retried on this many claims (the 5-minute cron: about 30 minutes) before the run blocks (F8). */
+export const ZOHO_OUTAGE_ATTEMPTS = 7;
 /** Longer than the route's maxDuration (300 s), so a live worker never loses its lease. */
 const LEASE_SECONDS = 420;
 
@@ -168,15 +170,20 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
   };
 
   try {
-    const row = await must(db.from("run").select("id, iso_week, rule_version_id, mode, spot_check_seed, status, step_attempts, zoho_read, superseded_by").eq("id", runId).single(), "run");
+    const row = await must(db.from("run").select("id, iso_week, rule_version_id, mode, spot_check_seed, status, step_attempts, zoho_read, superseded_by, error").eq("id", runId).single(), "run");
     if (!row) throw new Error("run not found");
-    const run = row as unknown as RunRow & { step_attempts: number; zoho_read: ZohoReadDoc | null; superseded_by: string | null };
+    const run = row as unknown as RunRow & { step_attempts: number; zoho_read: ZohoReadDoc | null; superseded_by: string | null; error: { reason?: string } | null };
     if (run.superseded_by) return { runId, status: "superseded", claimed: true };
     doc = run.zoho_read ?? {};
     let status = run.status;
     // claim_run counts every claim; one that never finished (error or timeout) leaves the count up.
     // Step 7 (Claude) never blocks: its claims don't count toward the attempt limit.
-    if (run.step_attempts > MAX_ATTEMPTS && status !== "ready") {
+    const zohoOutage = run.error?.reason === "zoho_unavailable";
+    if (zohoOutage && run.step_attempts > ZOHO_OUTAGE_ATTEMPTS) {
+      await block(db, runId, "zoho_unavailable", `Zoho didn't respond for about 30 minutes (${ZOHO_OUTAGE_ATTEMPTS} tries). Retry the run once Zoho is back.`);
+      return { runId, status: "blocked", claimed: true };
+    }
+    if (run.step_attempts > MAX_ATTEMPTS && status !== "ready" && !zohoOutage) {
       await block(db, runId, "step_failed", `The run didn't finish after ${MAX_ATTEMPTS} attempts (errors or timeouts).`);
       return { runId, status: "blocked", claimed: true };
     }
@@ -330,6 +337,14 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
     // Keep the calls spent, so a retry gets only what's left of the run's budget (review M3, finding 8).
     if (http) await db.from("run").update({ zoho_read: { ...doc, calls: callsSoFar() } }).eq("id", runId);
     const zohoBlock = zohoBlockReason(e);
+    // F8: an outage (5xx/429 after back-off) is retried by the next cron cycles before the week is blocked.
+    if (zohoBlock && zohoBlock[0] === "zoho_unavailable") {
+      const { data } = await db.from("run").select("step_attempts").eq("id", runId).single();
+      if ((data?.step_attempts ?? 0) < ZOHO_OUTAGE_ATTEMPTS) {
+        await db.from("run").update({ error: { reason: "zoho_unavailable", message: `${zohoBlock[1]} Retrying every 5 minutes.` } }).eq("id", runId);
+        return { runId, status: "retrying", claimed: true, error: zohoBlock[1] };
+      }
+    }
     if (zohoBlock) {
       await block(db, runId, zohoBlock[0], zohoBlock[1]);
       return { runId, status: "blocked", claimed: true, error: zohoBlock[1] };
