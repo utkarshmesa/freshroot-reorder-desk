@@ -57,7 +57,8 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
   const ready = ["ready", "llm", "done"].includes(run.status);
   // C-039: the failsafe is offered when Zoho blocked the run, or while it is retrying a Zoho outage.
   const zohoReason = run.error?.reason ?? "";
-  const zohoStuck = zohoReason.startsWith("zoho") && (run.status === "blocked" || ["queued", "readback", "zoho_read", "mapping"].includes(run.status));
+  // Not after Send failed (zoho_not_draft): the queue exists and drafts may be out (review M5b #1).
+  const zohoStuck = zohoReason.startsWith("zoho") && zohoReason !== "zoho_not_draft" && (run.status === "blocked" || ["queued", "readback", "zoho_read", "mapping"].includes(run.status));
 
   return (
     <Shell session={session} current="review">
