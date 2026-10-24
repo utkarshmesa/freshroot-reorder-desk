@@ -135,5 +135,5 @@ BUILD_PLAN §8 says: "Q = std × (1.5 if HD else 1); raise in std steps until P 
 
 | # | What | Status |
 |---|---|---|
-| a | **Zoho test org deferred.** Creating a Zoho Inventory organisation failed with Zoho error 6063 on this account (two tries in the built-in browser). The ADR-0002 scope check (ZO-13), the recorded fixtures and the M1 exit item stay open until an org exists. The refresh token is saved in  for when it does. | Deferred by Utkarsh |
-| b | **The replay reads files directly** (), not the  table. It's a one-off batch, so loading 19M rows into Postgres buys nothing. The table stays available. | Implementation detail; refines C-023g |
+| a | **Zoho test org deferred.** Creating a Zoho Inventory organisation failed with Zoho error 6063 on this account (two tries in the built-in browser). The ADR-0002 scope check (ZO-13), the recorded fixtures and the M1 exit item stay open until an org exists. The refresh token is saved in `.env.zoho-test` for when it does. | Deferred by Utkarsh |
+| b | **The replay reads files directly** (`scripts/replay`), not the `backfill_sales` table. It's a one-off batch, so loading 19M rows into Postgres buys nothing. The table stays available. | Implementation detail; refines C-023g |
