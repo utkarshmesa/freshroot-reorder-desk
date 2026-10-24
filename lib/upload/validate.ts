@@ -237,9 +237,10 @@ export function prepareUpload(files: InputFile[], ctx: UploadContext): PreparedU
       issue(c, "error", "unknown_file_type", `Can't tell what this file is from its headers (${f.table.headers.join(", ") || "none"}). Use the saved SAP layouts.`, undefined, LINK.uploader);
       continue;
     }
-    if (SHAPES[kind].caseOnly && !ctx.caseDataMode) {
-      issue(c, "error", "case_file_outside_case_mode", "This is a case-study file; it is only accepted in case-data mode");
-      continue;
+    // C-040: the case layouts are what Freshroots' SAP export produces, so they are accepted everywhere. Case-data
+    // mode now only means a demo project (no Zoho, names hidden). SKU-level sales lose distributor features.
+    if (SHAPES[kind].caseOnly && !ctx.caseDataMode && kind === "case_weekly_sales") {
+      issue(c, "warning", "sku_level_sales", "Sales are per SKU, without distributors or returns: they are counted under one \"All distributors\" entry, so new/inactive-distributor handling and the top-3 distributor view are off (C-040).");
     }
     if (kinds.includes(kind)) {
       issue(c, "error", "duplicate_kind", `Two ${kind} files in one upload`);
@@ -275,8 +276,8 @@ export function prepareUpload(files: InputFile[], ctx: UploadContext): PreparedU
   const sales = rowsOf("sales");
   const stock = rowsOf("stock");
 
-  // Case-data mode always has the synthetic "ALL" distributor (C-011).
-  if (ctx.caseDataMode && sales.length > 0 && !ctx.knownDistributorIds.has(CASE_DISTRIBUTOR_ID)) {
+  // SKU-level sales (the case layout, C-011/C-040) always go under the synthetic "ALL" distributor.
+  if (kinds.includes("case_weekly_sales") && !ctx.knownDistributorIds.has(CASE_DISTRIBUTOR_ID)) {
     staging.push({ kind: "distributor", row: { id: CASE_DISTRIBUTOR_ID, name: "All distributors (case data)", region: null, status: "active", start_week: null, end_week: null } });
   }
 

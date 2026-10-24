@@ -68,8 +68,11 @@ describe("UP-13 case-data mode", () => {
     expect(p.report.newWeeks).toHaveLength(16);
   });
 
-  it("case files are refused outside case-data mode", () => {
-    const r = prepareUpload(caseFiles(), { ...empty(), caseDataMode: false }).report;
-    expect(new Set(codes(r.issues, "error"))).toEqual(new Set(["case_file_outside_case_mode"]));
+  it("C-040: the case layouts are accepted outside case-data mode, with SKU-level sales under one ALL distributor", () => {
+    const p2 = prepareUpload(caseFiles(), { ...empty(), caseDataMode: false });
+    expect(codes(p2.report.issues, "error")).toEqual([]);
+    expect(codes(p2.report.issues, "warning")).toContain("sku_level_sales");
+    expect(p2.staging.some((s) => s.kind === "distributor" && s.row.id === "ALL")).toBe(true);
+    expect(p2.staging.filter((s) => s.kind === "sales").every((s) => s.row.distributor_id === "ALL")).toBe(true);
   });
 });
