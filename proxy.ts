@@ -17,7 +17,8 @@ export async function proxy(request: NextRequest) {
   });
   const { data } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
-  if (!data.user && !path.startsWith("/login")) {
+  // /auth/confirm receives emailed sign-in links from people who aren't signed in yet.
+  if (!data.user && !path.startsWith("/login") && !path.startsWith("/auth/")) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
