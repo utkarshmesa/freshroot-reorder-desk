@@ -1,7 +1,7 @@
 // Claude explains, code decides (CLAUDE.md, D13). Pure orchestration over an injected LLM call: the text is
 // used only if every number checks against the engine's facts; otherwise, or on any error, the template.
 // Nothing here returns or changes a quantity.
-import { checkNumbers } from "./numbers";
+import { checkNumbers, hasNumberWords, orderClaimsOk } from "./numbers";
 import { allowlist, BRIEF_SYSTEM, briefAllowlist, briefPrompt, REASON_SYSTEM, reasonPrompt, type BriefFacts, type CardFacts } from "./prompt";
 import { briefTemplate, reasonTemplate, withNames } from "./template";
 
@@ -24,12 +24,13 @@ async function attempt(llm: LlmCall | null, system: string, user: string, maxCha
 
 export async function explainCard(c: CardFacts, llm: LlmCall | null, names: Record<string, string> | null): Promise<Explained> {
   const text = await attempt(llm, REASON_SYSTEM, reasonPrompt(c), MAX_REASON_CHARS);
-  if (text && checkNumbers(text, allowlist(c), [c.name]).ok) return { text: withNames(text, names), source: "llm" };
+  const orderable = [c.qty, ...(c.infeasibleOptions ? [c.infeasibleOptions.orderMoq.qty] : [])];
+  if (text && checkNumbers(text, allowlist(c), [c.name]).ok && !hasNumberWords(text) && orderClaimsOk(text, orderable)) return { text: withNames(text, names), source: "llm" };
   return { text: reasonTemplate(c, names), source: "template" };
 }
 
 export async function explainBrief(b: BriefFacts, llm: LlmCall | null): Promise<Explained> {
   const text = await attempt(llm, BRIEF_SYSTEM, briefPrompt(b), MAX_BRIEF_CHARS);
-  if (text && checkNumbers(text, briefAllowlist(b), b.atRisk.map((r) => r.name)).ok) return { text, source: "llm" };
+  if (text && checkNumbers(text, briefAllowlist(b), b.atRisk.map((r) => r.name)).ok && !hasNumberWords(text)) return { text, source: "llm" };
   return { text: briefTemplate(b), source: "template" };
 }

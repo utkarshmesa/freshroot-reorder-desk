@@ -27,7 +27,9 @@ export class FakeZoho {
   createStatus = "draft";
   /** Create the PO, then answer 500: the "response lost after POST" case (ZO-04). */
   loseNextCreateResponse = false;
-  /** PO ids the reference search doesn't see yet (search lagging behind a create). */
+  /** Hide every PO created from now on from search and vendor lists (until cleared). */
+  hideCreated = false;
+  /** PO ids the reference search and vendor list don't show yet (Zoho lagging behind a create). */
   hiddenFromSearch = new Set<string>();
   private nextId = 1;
 
@@ -61,7 +63,7 @@ export class FakeZoho {
       return paged(
         "purchaseorders",
         [...this.pos.values()]
-          .filter((p) => (!status || p.status === status) && (!vendor || p.vendor_id === vendor) && (!ref || (p.reference_number === ref && !this.hiddenFromSearch.has(p.purchaseorder_id))))
+          .filter((p) => (!status || p.status === status) && (!vendor || p.vendor_id === vendor) && (!ref || p.reference_number === ref) && (!(ref || vendor) || !this.hiddenFromSearch.has(p.purchaseorder_id)))
           .map(withoutLines),
       );
     }
@@ -92,6 +94,7 @@ export class FakeZoho {
     const id = `new-${this.nextId++}`;
     const po: ZohoPo = { purchaseorder_id: id, purchaseorder_number: `PO-${id}`, status: this.createStatus, vendor_id: b.vendor_id, reference_number: b.reference_number, date: b.date, line_items: b.line_items.map((l) => ({ item_id: l.item_id, quantity: l.quantity, quantity_received: 0 })), last_modified_time: new Date().toISOString() };
     this.pos.set(id, po);
+    if (this.hideCreated) this.hiddenFromSearch.add(id);
     if (this.loseNextCreateResponse) {
       this.loseNextCreateResponse = false;
       return res(500, { code: 1, message: "fake: response lost" });

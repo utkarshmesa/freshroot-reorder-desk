@@ -25,7 +25,11 @@ import { loadEngineInput, type RunRow } from "./load";
 
 export type ProcessResult = { runId: string; status: string; claimed: boolean; error?: string };
 /** llm: undefined = the production client (null without a key); null = templates only. */
-export type ProcessOptions = { caseDataMode: boolean; now?: Date; zoho?: ZohoFactory; llm?: LlmCall | null };
+/** llmBudgetMs: time step 7 may spend on Claude per invocation; past it, the remaining cards keep their template. */
+export type ProcessOptions = { caseDataMode: boolean; now?: Date; zoho?: ZohoFactory; llm?: LlmCall | null; llmBudgetMs?: number };
+
+/** Well inside the route's 300 s, leaving room for the earlier steps and the brief. */
+const LLM_BUDGET_MS = 150_000;
 
 /** After this many claims without finishing (errors or timeouts), a run is blocked and the admin alerted. */
 export const MAX_ATTEMPTS = 3;
@@ -170,7 +174,8 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
     doc = run.zoho_read ?? {};
     let status = run.status;
     // claim_run counts every claim; one that never finished (error or timeout) leaves the count up.
-    if (run.step_attempts > MAX_ATTEMPTS) {
+    // Step 7 (Claude) never blocks: its claims don't count toward the attempt limit.
+    if (run.step_attempts > MAX_ATTEMPTS && status !== "ready") {
       await block(db, runId, "step_failed", `The run didn't finish after ${MAX_ATTEMPTS} attempts (errors or timeouts).`);
       return { runId, status: "blocked", claimed: true };
     }
@@ -309,27 +314,7 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
 
     // 7. Claude (§8.7): a reason per card Raghav sees, and the weekly brief. Checked numbers or template.
     if (status === "ready") {
-      const llm = opts.llm === undefined ? productionLlm() : opts.llm;
-      const names = await distributorNames(db, opts.caseDataMode);
-      const rows = await must(db.from("recommendation").select("*").eq("run_id", runId), "recommendations");
-      const recs = rows.map((r) => ({ id: r.id as number, rec: recFromRow(r), lineState: (r.line_state as string | null) ?? null, source: r.reason_source as string }));
-      const toExplain = recs.filter((r) => r.lineState === "queued" && !r.rec.holdout && r.source !== "llm");
-      let fellBack = 0;
-      await pool(toExplain, 5, async (r) => {
-        const out = await explainCard(cardFacts(r.rec).facts, llm, namesFor(r.rec, names));
-        if (out.source === "llm") await must(db.from("recommendation").update({ reason_text: out.text, reason_source: "llm" }).eq("id", r.id).select("id"), "reason");
-        else fellBack++;
-      });
-      // §10: most reasons falling back means the LLM is down or drifting; info to IT, never a blocker.
-      if (llm && toExplain.length && fellBack / toExplain.length > 0.5) {
-        await db.from("alert").upsert(
-          { kind: "llm_fallback", dedupe_key: `llm_fallback:${runId}`, run_id: runId, payload: { message: `${fellBack} of ${toExplain.length} card reasons fell back to template text this run.` } },
-          { onConflict: "dedupe_key", ignoreDuplicates: true },
-        );
-      }
-      const brief = await explainBrief(briefFacts(run.iso_week, run.mode, recs.map((r) => ({ rec: r.rec, lineState: r.lineState }))), llm);
-      await must(db.from("brief").upsert({ run_id: runId, text: brief.text, source: brief.source, checked: brief.source === "llm" }, { onConflict: "run_id" }).select("run_id"), "brief");
-      status = (await advance({ status: "done" })) ? "done" : "superseded";
+      status = await claudeStep(db, runId, run.iso_week, run.mode, opts, advance);
     }
     return { runId, status, claimed: true };
   } catch (e) {
@@ -351,6 +336,57 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
   } finally {
     await db.rpc("release_run", { p_run_id: runId });
   }
+}
+
+/**
+ * Step 7 (§8.7): a reason per card Raghav sees, and the weekly brief, with checked numbers or template text.
+ * Never blocks the run: past its time budget the remaining cards keep their template; on any error the brief
+ * falls back to the template and the run is still marked done (the queue already works with template text).
+ */
+async function claudeStep(
+  db: SupabaseClient,
+  runId: string,
+  isoWeek: string,
+  mode: "shadow" | "live",
+  opts: ProcessOptions,
+  advance: (patch: Record<string, unknown>) => Promise<boolean>,
+): Promise<string> {
+  const started = Date.now();
+  const budget = opts.llmBudgetMs ?? LLM_BUDGET_MS;
+  let llm = opts.llm === undefined ? productionLlm() : opts.llm;
+  let recs: Array<{ id: number; rec: Recommendation; lineState: string | null; source: string }> = [];
+  try {
+    const names = await distributorNames(db, opts.caseDataMode);
+    const rows = await must(db.from("recommendation").select("*").eq("run_id", runId), "recommendations");
+    recs = rows.map((r) => ({ id: r.id as number, rec: recFromRow(r), lineState: (r.line_state as string | null) ?? null, source: r.reason_source as string }));
+    const toExplain = recs.filter((r) => r.lineState === "queued" && !r.rec.holdout && r.source !== "llm");
+    let fellBack = 0;
+    await pool(toExplain, 5, async (r) => {
+      if (Date.now() - started > budget) {
+        fellBack++;
+        return; // out of time: the template stays
+      }
+      const out = await explainCard(cardFacts(r.rec).facts, llm, namesFor(r.rec, names));
+      if (out.source === "llm") await must(db.from("recommendation").update({ reason_text: out.text, reason_source: "llm" }).eq("id", r.id).select("id"), "reason");
+      else fellBack++;
+    });
+    // §10: most reasons falling back means the LLM is down, slow or drifting; info to IT, never a blocker.
+    if (llm && toExplain.length && fellBack / toExplain.length > 0.5) {
+      await db.from("alert").upsert(
+        { kind: "llm_fallback", dedupe_key: `llm_fallback:${runId}`, run_id: runId, payload: { message: `${fellBack} of ${toExplain.length} card reasons fell back to template text this run.` } },
+        { onConflict: "dedupe_key", ignoreDuplicates: true },
+      );
+    }
+  } catch {
+    llm = null; // something failed: finish with templates
+  }
+  try {
+    const brief = await explainBrief(briefFacts(isoWeek, mode, recs.map((r) => ({ rec: r.rec, lineState: r.lineState }))), Date.now() - started > budget ? null : llm);
+    await db.from("brief").upsert({ run_id: runId, text: brief.text, source: brief.source, checked: brief.source === "llm" }, { onConflict: "run_id" });
+  } catch {
+    // no brief this time; the next weekly run writes one
+  }
+  return (await advance({ status: "done" })) ? "done" : "superseded";
 }
 
 async function distributorNames(db: SupabaseClient, caseDataMode: boolean): Promise<Map<string, string> | null> {

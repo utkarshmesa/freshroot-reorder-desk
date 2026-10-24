@@ -180,3 +180,21 @@ describe("LL-04: a brief every run", () => {
     expect(r.source).toBe("template");
   });
 });
+
+describe("review M5 finding 6: a number must be used for what it is", () => {
+  it("an engine number in the wrong role (the MOQ said as the order) falls back", async () => {
+    const r = await explainCard(card(), async () => "Order 500 units now.", null); // 500 is the MOQ, the order is 750
+    expect(r.source).toBe("template");
+  });
+  it("the right order quantity passes", async () => {
+    expect((await explainCard(card(), async () => "Ordering 750 units restores cover.", null)).source).toBe("llm");
+  });
+  it("quantities in words can't be checked and fall back", async () => {
+    expect((await explainCard(card(), async () => "Sales have doubled; order twice the usual.", null)).source).toBe("template");
+    expect((await explainBrief(brief(), async () => "Two hundred units auto-approved.")).source).toBe("template");
+  });
+  it("on an infeasible card, ordering the MOQ is one of the card's own choices", async () => {
+    const c = card({ qty: 0, flags: ["perishable", "infeasible"], infeasibleOptions: { orderMoq: { qty: 500, coverAfter: 5.5 }, skip: { daysToStockout: 9.1 } } });
+    expect((await explainCard(c, async () => "Either order 500 units or skip this week.", null)).source).toBe("llm");
+  });
+});

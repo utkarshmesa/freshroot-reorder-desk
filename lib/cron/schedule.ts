@@ -46,7 +46,7 @@ export function uploadDue(now: Date, lastCommittedAt: string | null): boolean {
   return !lastCommittedAt || Date.parse(lastCommittedAt) < weekStartIST(now).getTime();
 }
 
-export type AlertKind = "run_blocked" | "pending_draft" | "draft_stale" | "deadline_applied" | "rejection_rate" | "upload_missed" | "run_ready_late" | "llm_fallback";
+export type AlertKind = "run_blocked" | "pending_draft" | "draft_unconfirmed" | "cron_failed" | "draft_stale" | "deadline_applied" | "rejection_rate" | "upload_missed" | "run_ready_late" | "llm_fallback";
 export type Recipient = { email: string; roles: string[]; isOwner: boolean; backupFor: string | null; backupFrom: string | null; backupTo: string | null };
 
 /** Who gets each alert (§10; BUILD_PLAN §11). `day` is today's IST date, for backup cover. */
@@ -57,6 +57,8 @@ export function recipientsFor(kind: string, users: Recipient[], day: string): st
   const rules: Record<string, Array<(u: Recipient) => boolean>> = {
     run_blocked: [has("admin"), has("uploader"), has("planner")],
     pending_draft: [has("procurement"), has("planner")],
+    draft_unconfirmed: [has("admin"), has("procurement"), has("planner")],
+    cron_failed: [has("admin")],
     draft_stale: [has("procurement"), has("planner")],
     deadline_applied: [owner],
     rejection_rate: [owner],

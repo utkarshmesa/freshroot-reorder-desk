@@ -44,6 +44,7 @@ export async function send(form: FormData) {
       r.waiting.length ? `Waiting on cards: ${r.waiting.map((w) => `${w.supplierId} (${w.queued})`).join(", ")}.` : "",
       r.skippedPending.length ? `Held by an unissued earlier draft: ${r.skippedPending.join(", ")}.` : "",
       r.held.length ? `Lines held because a PO changed in Zoho since Monday: ${r.held.flatMap((h) => h.skuIds).join(", ")}.` : "",
+      r.unconfirmed.length ? `Requested earlier but not yet visible in Zoho (won't be created twice; IT alerted): ${r.unconfirmed.join(", ")}.` : "",
       r.noSupplier.length ? `No supplier or Zoho mapping: ${r.noSupplier.join(", ")}.` : "",
       r.stopped ?? "",
     ]

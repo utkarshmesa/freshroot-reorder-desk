@@ -189,6 +189,41 @@ describe("live mode", () => {
     expect(created().filter((p) => p.reference_number === `FR-2026-W43-${sup}`)).toEqual([]);
   });
 
+  it("review M5 #1: a lost create that Zoho doesn't show yet is never POSTed again; it is adopted once visible", async () => {
+    const runId = await liveRun();
+    const sups = [...new Set((await lines(runId)).filter((l) => (l.final_qty ?? 0) > 0).map((l) => l.supplierId))].sort();
+    z.loseNextCreateResponse = true;
+    z.hideCreated = true;
+    const first = await live(runId);
+    expect(first.unconfirmed).toEqual([sups[0]]);
+    z.hideCreated = false;
+    const posts = () => z.writes().filter((w) => JSON.parse(w.body!).reference_number === `FR-2026-W43-${sups[0]}`).length;
+    expect(posts()).toBe(1);
+    expect((await live(runId)).unconfirmed).toEqual([sups[0]]); // still hidden: no second POST
+    expect(posts()).toBe(1);
+    const { data: alert } = await service().from("alert").select("kind").eq("dedupe_key", `draft_unconfirmed:2026-W43:${sups[0]}`);
+    expect(alert).toEqual([{ kind: "draft_unconfirmed" }]);
+    z.hiddenFromSearch.clear();
+    const third = await live(runId);
+    expect(third.sent.map((x) => x.supplierId)).toEqual([sups[0]]);
+    expect(posts()).toBe(1);
+    const { data } = await service().from("draft_po").select("status, zoho_po_id").eq("supplier_id", sups[0]).eq("iso_week", "2026-W43").eq("mode", "live").single();
+    expect(data!.status).toBe("created");
+  });
+
+  it("review M5 #9: an earlier system PO with an unknown Zoho status counts as pending (fail closed)", async () => {
+    const runId = await liveRun();
+    const sup = (await lines(runId)).find((l) => (l.final_qty ?? 0) > 0)!.supplierId;
+    z.addPo({ purchaseorder_id: "odd-1", status: "awaiting_magic", vendor_id: `v-${sup}`, reference_number: `FR-2026-W42-${sup}`, line_items: [{ item_id: "it-SKU001", quantity: 5 }] });
+    expect((await live(runId)).skippedPending).toEqual([sup]);
+  });
+
+  it("the PO date is the IST date", async () => {
+    const runId = await liveRun();
+    await sendToProcurement(service(), runId, { now: new Date("2026-10-20T19:00:00Z"), zoho: zohoFactory, envMode: "live", sleep: async () => {} }); // 00:30 IST Wed
+    expect(created().every((p) => p.date === "2026-10-21")).toBe(true);
+  });
+
   it("ZO-14: a created PO that isn't a draft stops the send, blocks the run and alerts", async () => {
     const runId = await liveRun();
     z.createStatus = "issued";

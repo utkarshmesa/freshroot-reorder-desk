@@ -19,6 +19,8 @@ export type SendOptions = {
   /** Defaults to process.env.APP_MODE. */
   envMode?: string;
   sleep?: (ms: number) => Promise<void>;
+  /** Tries to get the send lease before giving up (the cron waits for a planner's send to finish). */
+  lockTries?: number;
 };
 
 export type SendResult = {
@@ -29,6 +31,8 @@ export type SendResult = {
   skippedPending: string[];
   held: Array<{ supplierId: string; skuIds: string[] }>;
   noSupplier: string[];
+  /** A create was attempted earlier but Zoho doesn't show the draft yet: never created twice; alerted. */
+  unconfirmed: string[];
   /** Set when the send stopped early; the run may be blocked (ZO-14). */
   stopped?: string;
 };
@@ -41,13 +45,20 @@ async function must<T>(p: PromiseLike<{ data: T | null; error: { message: string
 }
 
 const UNIQUE_VIOLATION = "23505";
+/** The PO date is the IST calendar date (a send at 01:00 IST is that day, not the previous UTC day). */
+const istDate = (d: Date) => new Date(d.getTime() + 330 * 60_000).toISOString().slice(0, 10);
 /** Zoho writes "2026-10-20T10:00:00+0530"; Date.parse needs "+05:30". */
 const parseZohoTime = (t: string) => Date.parse(t.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
 
 export async function sendToProcurement(db: SupabaseClient, runId: string, opts: SendOptions = {}): Promise<SendResult> {
-  const { data: claimed, error: claimError } = await db.rpc("claim_send", { p_run_id: runId });
-  if (claimError) throw new Error(claimError.message);
-  if (!claimed) throw new Error("A send for this week is already in progress. Try again in a few minutes.");
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let attempt = 1; ; attempt++) {
+    const { data: claimed, error: claimError } = await db.rpc("claim_send", { p_run_id: runId });
+    if (claimError) throw new Error(claimError.message);
+    if (claimed) break;
+    if (attempt >= (opts.lockTries ?? 1)) throw new Error("A send for this week is already in progress. Try again in a few minutes.");
+    await sleep(10_000);
+  }
   try {
     return await send(db, runId, opts);
   } finally {
@@ -75,7 +86,7 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
   // A row still "creating" is a send that stopped part-way: resume it (adopt by reference), don't skip it.
   const drafted = await must(db.from("draft_po").select("supplier_id").eq("iso_week", week).eq("mode", mode).neq("status", "creating"), "drafts");
   const plan = planSend(lines, new Set(drafted.map((d) => d.supplier_id as string)));
-  const result: SendResult = { mode, sent: [], waiting: plan.waiting, alreadySent: [...plan.alreadySent], skippedPending: [], held: [], noSupplier: plan.noSupplier };
+  const result: SendResult = { mode, sent: [], waiting: plan.waiting, alreadySent: [...plan.alreadySent], skippedPending: [], held: [], noSupplier: plan.noSupplier, unconfirmed: [] };
   if (!plan.ready.length) return result;
 
   const skuIds = [...new Set(plan.ready.flatMap((s) => s.lines.map((l) => l.skuId)))];
@@ -120,7 +131,8 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
     const pos = await vendorPos(http, vendorId);
 
     // C-023: an un-issued system draft from an earlier week holds this supplier for the whole week.
-    let pending = pos.some((p) => p.reference_number?.startsWith("FR-") && p.reference_number !== reference && poStatus(p.status) === "draft");
+    // An unknown Zoho status on an earlier system PO counts as pending (fail closed).
+    let pending = pos.some((p) => p.reference_number?.startsWith("FR-") && p.reference_number !== reference && (poStatus(p.status) === "draft" || poStatus(p.status) === null));
     if (!pending) {
       const earlier = await must(
         db.from("draft_po").select("zoho_po_id").eq("supplier_id", s.supplierId).eq("mode", "live").eq("status", "created").neq("iso_week", week).not("zoho_po_id", "is", null),
@@ -128,7 +140,7 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
       );
       for (const d of earlier) {
         const po = await readPo(http, d.zoho_po_id as string);
-        if (po && poStatus(po.status) === "draft") pending = true;
+        if (po && (poStatus(po.status) === "draft" || poStatus(po.status) === null)) pending = true;
       }
     }
     if (pending) {
@@ -147,7 +159,12 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
     let lines = s.lines;
     if (readAt) {
       const since = Date.parse(readAt);
-      const changed = pos.filter((p) => poStatus(p.status) !== "draft" && p.reference_number !== reference && p.last_modified_time && parseZohoTime(p.last_modified_time) > since);
+      // No timestamp (or one we can't read) counts as changed: holding a line can only order less.
+      const changed = pos.filter((p) => {
+        if (poStatus(p.status) === "draft" || p.reference_number === reference) return false;
+        const t = p.last_modified_time ? parseZohoTime(p.last_modified_time) : NaN;
+        return !Number.isFinite(t) || t > since;
+      });
       const touched = new Set<string>();
       const skuOfItem = new Map([...itemOf.entries()].filter(([, v]) => v).map(([k, v]) => [v as string, k]));
       for (const p of changed) {
@@ -176,21 +193,32 @@ async function send(db: SupabaseClient, runId: string, opts: SendOptions): Promi
     } else if (ins.error) throw new Error(`draft: ${ins.error.message}`);
     else draftId = ins.data.id as string;
 
-    let found = await findByReference(http, reference);
-    if (!found) {
-      await sleep(5000); // search can lag behind a create
-      found = await findByReference(http, reference);
-    }
-    let poId = found?.purchaseorder_id ?? null;
+    // Adopt an existing PO with this reference (the vendor list is paginated; search may lag a create).
+    const lookup = async () => pos.find((p) => p.reference_number === reference)?.purchaseorder_id ?? (await findByReference(http, reference))?.purchaseorder_id ?? null;
+    let poId = await lookup();
     if (!poId) {
-      const payload = draftPayload({ vendorId, reference, date: now.toISOString().slice(0, 10), lines: lines.map((l) => ({ itemId: itemOf.get(l.skuId)!, qty: l.qty })) });
-      try {
-        poId = (await writer.createDraft(payload)).purchaseorder_id;
-      } catch (e) {
-        // The create may have happened with the response lost (ZO-04): look again before giving up.
-        await sleep(5000);
-        poId = (await findByReference(http, reference))?.purchaseorder_id ?? null;
-        if (!poId) throw e;
+      await sleep(5000);
+      poId = (await findByReference(http, reference))?.purchaseorder_id ?? null;
+    }
+    if (!poId) {
+      // One create attempt per draft row, ever (ZO-04): an earlier send may have POSTed and lost the answer.
+      const claim = await must(db.from("draft_po").update({ create_attempted_at: now.toISOString() }).eq("id", draftId).is("create_attempted_at", null).select("id"), "claim create");
+      if (claim.length === 1) {
+        const payload = draftPayload({ vendorId, reference, date: istDate(now), lines: lines.map((l) => ({ itemId: itemOf.get(l.skuId)!, qty: l.qty })) });
+        try {
+          poId = (await writer.createDraft(payload)).purchaseorder_id;
+        } catch {
+          await sleep(5000);
+          poId = (await findByReference(http, reference))?.purchaseorder_id ?? null;
+        }
+      }
+      if (!poId) {
+        await db.from("alert").upsert(
+          { kind: "draft_unconfirmed", dedupe_key: `draft_unconfirmed:${week}:${s.supplierId}`, run_id: runId, payload: { supplier: s.supplierId, message: `A draft ${reference} was requested but Zoho doesn't show it yet. The system won't create it again. Check Zoho: if it exists, the next Send adopts it; if not, IT resets the draft row (RUNBOOK).` } },
+          { onConflict: "dedupe_key", ignoreDuplicates: true },
+        );
+        result.unconfirmed.push(s.supplierId);
+        continue;
       }
     }
 

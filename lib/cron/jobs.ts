@@ -6,7 +6,7 @@ import "server-only";
 //   deliverAlerts (every 5 min with the run cron): email pending alerts via Resend (C-027)
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applyDeadline, type LineState } from "@/lib/engine/deadline";
-import { weekOfDate } from "@/lib/isoweek";
+import { mondayOf, nextWeek, weekOfDate } from "@/lib/isoweek";
 import type { RuleParams } from "@/lib/rules/defaults";
 import { recFromRow } from "@/lib/run/worker";
 import { sendToProcurement, type SendOptions } from "@/lib/send/send";
@@ -33,55 +33,53 @@ export type NoonResult = { applied: Array<{ runId: string; deadlineAuto: number;
 
 export async function noonJob(db: SupabaseClient, now: Date, send: SendOptions = {}): Promise<NoonResult> {
   const out: NoonResult = { applied: [], resent: [], stale: [], errors: [] };
-  const runs = (await must(
-    db.from("run").select("id, iso_week, ready_at, rule_version_id, deadline_applied_at, created_at").is("superseded_by", null).in("status", ["ready", "llm", "done"]),
+  // Only the latest week, and only until its week ends: an older week must never send after the next
+  // week's run has read Zoho (review M5, finding 4).
+  const latest = (await must(
+    db.from("run").select("id, iso_week, ready_at, rule_version_id, deadline_applied_at, created_at, status").is("superseded_by", null).order("iso_week", { ascending: false }).limit(1),
     "runs",
-  )) as unknown as RunInfo[];
+  )) as unknown as Array<RunInfo & { status: string }>;
+  const run = latest[0];
+  const weekOver = run ? now.getTime() >= Date.parse(`${mondayOf(nextWeek(run.iso_week))}T00:00:00+05:30`) : true;
 
-  for (const run of runs) {
+  if (run && !weekOver && ["ready", "llm", "done"].includes(run.status)) {
     try {
       const { params } = (await must(db.from("rule_version").select("params").eq("id", run.rule_version_id).single(), "rules")) as unknown as { params: RuleParams };
-      if (run.deadline_applied_at) {
-        // Already applied: retry the send for anything still unsent this week (a Zoho outage, say). Idempotent.
-        if (now.getTime() - Date.parse(run.created_at) < 8 * 86_400_000) {
-          await sendToProcurement(db, run.id, { ...send, now });
-          out.resent.push(run.id);
+      if (deadlineDue({ isoWeek: run.iso_week, readyAt: run.ready_at }, now, params.deadline)) {
+        // Applied on every firing after the deadline to whatever is still queued: the updates are conditional,
+        // so a firing that crashed half-way is finished by the next one (review M5, finding 3).
+        await db.from("run").update({ deadline_applied_at: now.toISOString() }).eq("id", run.id).is("deadline_applied_at", null);
+        const rows = await must(db.from("recommendation").select("*").eq("run_id", run.id).eq("line_state", "queued"), "queued lines");
+        const results = applyDeadline(rows.map((r) => ({ rec: recFromRow(r), state: "queued" as LineState })), { deadlineStdMultiple: params.deadlineStdMultiple });
+        let deadlineAuto = 0;
+        let rolled = 0;
+        for (const [i, res] of results.entries()) {
+          const updated = await must(db.from("recommendation").update({ line_state: res.state, final_qty: res.state === "deadline_auto" ? res.qty : 0 }).eq("id", rows[i]!.id).eq("line_state", "queued").select("id"), "deadline line");
+          if (updated.length && res.state === "deadline_auto") deadlineAuto++;
+          else if (updated.length) rolled++;
         }
-        continue;
-      }
-      if (!deadlineDue({ isoWeek: run.iso_week, readyAt: run.ready_at }, now, params.deadline)) continue;
-      // Claim the application first, so two firings can't both apply it.
-      const claimed = await must(db.from("run").update({ deadline_applied_at: now.toISOString() }).eq("id", run.id).is("deadline_applied_at", null).select("id"), "claim deadline");
-      if (claimed.length !== 1) continue;
 
-      const rows = await must(db.from("recommendation").select("*").eq("run_id", run.id).eq("line_state", "queued"), "queued lines");
-      const results = applyDeadline(rows.map((r) => ({ rec: recFromRow(r), state: "queued" as LineState })), { deadlineStdMultiple: params.deadlineStdMultiple });
-      let deadlineAuto = 0;
-      let rolled = 0;
-      for (const [i, res] of results.entries()) {
-        const row = rows[i]!;
-        const updated = await must(db.from("recommendation").update({ line_state: res.state, final_qty: res.state === "deadline_auto" ? res.qty : 0 }).eq("id", row.id).eq("line_state", "queued").select("id"), "deadline line");
-        if (updated.length && res.state === "deadline_auto") deadlineAuto++;
-        else if (updated.length) rolled++;
-      }
+        let sendNote = "nothing to send";
+        try {
+          // Wait for a planner's send that is running right now, then send what the rule just settled.
+          const r = await sendToProcurement(db, run.id, { ...send, now, lockTries: send.lockTries ?? 6 });
+          sendNote = r.stopped ?? `${r.mode}: ${r.sent.length} supplier draft(s)`;
+        } catch (e) {
+          sendNote = `send failed: ${e instanceof Error ? e.message : String(e)}`;
+          out.errors.push(sendNote);
+        }
+        if (rows.length) {
+          await raiseAlert(db, "deadline_applied", `deadline:${run.id}`, { week: run.iso_week, deadlineAuto, rolled, send: sendNote }, run.id);
+          out.applied.push({ runId: run.id, deadlineAuto, rolled, send: sendNote });
+        } else out.resent.push(run.id);
 
-      let sendNote = "sent";
-      try {
-        const r = await sendToProcurement(db, run.id, { ...send, now });
-        sendNote = r.stopped ?? `${r.mode}: ${r.sent.length} supplier draft(s)`;
-      } catch (e) {
-        sendNote = `send failed: ${e instanceof Error ? e.message : String(e)}`;
-        out.errors.push(sendNote);
+        const decided = await must(db.from("recommendation").select("qty, line_state, decision!inner(status)").eq("run_id", run.id).in("line_state", ["approved", "changed", "rejected", "sent"]), "decided");
+        const alarm = rejectionAlarm(
+          decided.map((d) => ({ state: (d.decision as Array<{ status: string }>).find((x) => x.status !== "reapproved")?.status ?? String(d.line_state), units: d.qty as number })),
+          params.rejectionAlarm,
+        );
+        if (alarm.level) await raiseAlert(db, "rejection_rate", `rejection_rate:${run.id}`, { week: run.iso_week, ratePct: alarm.ratePct, level: alarm.level }, run.id);
       }
-      await raiseAlert(db, "deadline_applied", `deadline:${run.id}`, { week: run.iso_week, deadlineAuto, rolled, send: sendNote }, run.id);
-
-      const decided = await must(db.from("recommendation").select("qty, line_state, decision!inner(status)").eq("run_id", run.id).in("line_state", ["approved", "changed", "rejected", "sent"]), "decided");
-      const alarm = rejectionAlarm(
-        decided.map((d) => ({ state: (d.decision as Array<{ status: string }>).find((x) => x.status !== "reapproved")?.status ?? String(d.line_state), units: d.qty as number })),
-        params.rejectionAlarm,
-      );
-      if (alarm.level) await raiseAlert(db, "rejection_rate", `rejection_rate:${run.id}`, { week: run.iso_week, ratePct: alarm.ratePct, level: alarm.level }, run.id);
-      out.applied.push({ runId: run.id, deadlineAuto, rolled, send: sendNote });
     } catch (e) {
       out.errors.push(`${run.iso_week}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -92,6 +90,8 @@ export async function noonJob(db: SupabaseClient, now: Date, send: SendOptions =
   } catch (e) {
     out.errors.push(`stale drafts: ${e instanceof Error ? e.message : String(e)}`);
   }
+  // Errors must reach a person, not only a JSON response (review M5, finding 3).
+  if (out.errors.length) await raiseAlert(db, "cron_failed", `cron_failed:noon:${istDay(now)}`, { message: `The 12:00 job had errors: ${out.errors.join(" | ")}` });
   return out;
 }
 
@@ -131,6 +131,8 @@ export async function uploadCheck(db: SupabaseClient, now: Date): Promise<boolea
 const SUBJECTS: Record<string, string> = {
   run_blocked: "Reorder Desk: this week's run is blocked",
   pending_draft: "Reorder Desk: a pending draft is holding a supplier",
+  draft_unconfirmed: "Reorder Desk: a draft request isn't visible in Zoho yet",
+  cron_failed: "Reorder Desk: a scheduled job had errors",
   draft_stale: "Reorder Desk: a draft needs re-approval",
   deadline_applied: "Reorder Desk: Tuesday 12:00 rule applied",
   rejection_rate: "Reorder Desk: rejection rate outside the expected range",

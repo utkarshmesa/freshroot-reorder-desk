@@ -10,6 +10,8 @@ update public.recommendation set final_qty = qty where line_state = 'auto' and f
 create unique index if not exists draft_po_supplier_week_shadow on public.draft_po (supplier_id, iso_week) where mode = 'shadow';
 
 -- C-009: a draft not issued within draftStaleDays needs Raghav's re-approval (no Zoho write).
+-- ZO-04: set just before the one POST a draft row may ever make; a row that already tried never POSTs again.
+alter table public.draft_po add column if not exists create_attempted_at timestamptz;
 alter table public.draft_po add column if not exists needs_reapproval boolean not null default false;
 alter table public.draft_po add column if not exists reapproved_at timestamptz;
 alter table public.decision add column if not exists draft_id uuid references public.draft_po (id);

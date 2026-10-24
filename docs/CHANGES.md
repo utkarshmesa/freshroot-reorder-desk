@@ -214,3 +214,18 @@ The replay already reports all three numbers, and prints the verdict under both 
 | h | One Send per run at a time (row lease). Draft creation is never retried blindly on a server error: the draft is searched for by reference and adopted. | Prevents two drafts for one supplier-week (ZO-04) |
 | i | Without `RESEND_API_KEY`, alerts are stored and stay pending (admins can see them); nothing is lost. | Fail visible, not silent |
 | j | INSTRUCTIONS no longer mentions a thumbs-down on Claude's text (it was never in BUILD_PLAN). Each card shows whether its text is AI-written (numbers checked) or rule text. | Keep Instructions true to the app |
+
+**Milestone 5 code review (independent reviewer, 24 Oct 2026): 10 findings, 9 fixed, 1 rejected.**
+
+| # | Finding | Outcome |
+|---|---|---|
+| 1 | Resuming a half-finished draft could POST a second Zoho draft if search lagged | Fixed: each draft row gets one create attempt, ever (`create_attempted_at`). The next Send adopts the draft once Zoho shows it. Until then the supplier is reported as unconfirmed and admin, procurement and Raghav are alerted (`draft_unconfirmed`). If the draft never appears, IT resets the row by hand (to go into the RUNBOOK in Step 3) |
+| 2 | A slow or down Claude API could get a ready run blocked after 3 claims | Fixed: step 7 has its own 150 s budget, its claims don't count toward the attempt limit, and any failure finishes the run with template text |
+| 3 | The Tuesday rule was marked applied before it ran; a crash halfway left cards queued | Fixed: every noon firing after the deadline applies the rule to whatever is still queued. Errors raise a `cron_failed` alert |
+| 4 | The noon job could send an older week after the next week's run | Fixed: only the latest week, and only until its week ends. Old runs are backfilled as applied |
+| 5 | Raghav's Send at 12:00 could make the cron's send fail | Fixed: the cron waits up to about a minute for the send lease |
+| 6 | The number checker accepted an engine number used in the wrong role, and number words | Fixed: a number said to be ordered must be the card's quantity (or the MOQ on an infeasible card). Number words fall back to the template |
+| 7 | "Skip" on an infeasible card is recorded as approved with 0 units | **Rejected:** the engine's own quantity on an infeasible card is 0, so skipping follows the rules as written. With 0 units it doesn't move the unit-weighted rejection rate |
+| 8 | The PO date was the UTC date | Fixed: IST date |
+| 9 | An unknown Zoho status didn't count as pending, and a missing timestamp didn't hold the line | Fixed: both now fail closed (pending, or line held) |
+| 10 | The desk and the send counted drafts in different modes | Fixed: both use the effective mode |

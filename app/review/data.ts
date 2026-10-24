@@ -5,7 +5,7 @@ import { userClient } from "@/lib/db/server";
 import type { Recommendation } from "@/lib/engine/types";
 import type { RuleParams } from "@/lib/rules/defaults";
 import { recFromRow } from "@/lib/run/worker";
-import { planSend, type SendLine } from "@/lib/send/plan";
+import { effectiveMode, planSend, type SendLine } from "@/lib/send/plan";
 
 export type DeskLine = {
   id: number;
@@ -38,12 +38,13 @@ export async function loadDesk(): Promise<Desk | null> {
   const r = runs?.[0];
   if (!r) return null;
 
-  const [recs, drafts, codes, suppliers, rules] = await Promise.all([
+  const [recs, drafts, codes, suppliers, rules, appMode] = await Promise.all([
     db.from("recommendation").select("*, decision(status, final_qty, reason_code, note, at)").eq("run_id", r.id),
     db.from("draft_po").select("id, supplier_id, reference, mode, status, created_at, issued_at, needs_reapproval, requested_lines").eq("iso_week", r.iso_week).order("supplier_id"),
     db.from("reason_code").select("code, label").eq("active", true).order("sort"),
     db.from("supplier").select("id, name"),
     db.from("rule_version").select("params").eq("id", r.rule_version_id).single(),
+    db.from("app_mode").select("mode").maybeSingle(),
   ]);
 
   const lines: DeskLine[] = (recs.data ?? []).map((row) => {
@@ -91,6 +92,14 @@ export async function loadDesk(): Promise<Desk | null> {
     })),
     reasonCodes: (codes.data ?? []) as Array<{ code: string; label: string }>,
     supplierNames: Object.fromEntries((suppliers.data ?? []).map((s) => [s.id as string, (s.name as string) ?? (s.id as string)])),
-    plan: planSend(sendLines, new Set((drafts.data ?? []).filter((d) => d.status !== "creating").map((d) => d.supplier_id as string))),
+    // Count drafts in the mode a Send would use, exactly as the send does (review M5, finding 10).
+    plan: planSend(
+      sendLines,
+      new Set(
+        (drafts.data ?? [])
+          .filter((d) => d.status !== "creating" && d.mode === effectiveMode(process.env.APP_MODE, (appMode.data?.mode as string) ?? "shadow", runMode))
+          .map((d) => d.supplier_id as string),
+      ),
+    ),
   };
 }

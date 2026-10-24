@@ -52,3 +52,16 @@ export function numbersIn(x: unknown, out: number[] = []): number[] {
   else if (x && typeof x === "object") Object.values(x).forEach((v) => numbersIn(v, out));
   return out;
 }
+
+/** Quantities written as words can't be checked, so they aren't allowed (review M5, finding 6). */
+const NUMBER_WORDS = /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand|lakhs?|crores?|dozen|twice|double|doubled|triple|tripled|half)\b/i;
+export const hasNumberWords = (text: string) => NUMBER_WORDS.test(text);
+
+/** Numbers the text says to order ("order 750", "ordering 1,200 units"): each must be one of `allowed`. */
+export function orderClaimsOk(text: string, allowed: number[]): boolean {
+  for (const m of text.matchAll(/\border(?:s|ed|ing)?\s+(?:of\s+|about\s+|another\s+|an extra\s+)*(\d[\d,]*(?:\.\d+)?)/gi)) {
+    const v = Number(m[1]!.replace(/,/g, ""));
+    if (!allowed.includes(v)) return false;
+  }
+  return true;
+}

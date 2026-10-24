@@ -87,6 +87,21 @@ describe("TS-03 the Tuesday 12:00 rule", () => {
     expect(again.resent).toEqual([runId]);
   });
 
+  it("review M5 #4: once the week is over, the noon job leaves it alone", async () => {
+    const runId = await newRun();
+    const res = await noon(new Date("2026-10-26T06:30:00Z")); // next Monday noon
+    expect(res.applied).toEqual([]);
+    expect((await lines(runId)).some((l) => l.line_state === "queued")).toBe(true);
+  });
+
+  it("review M5 #3: a firing that stopped half-way is finished by the next one", async () => {
+    const runId = await newRun();
+    await service().from("run").update({ deadline_applied_at: TUE_NOON.toISOString() }).eq("id", runId); // marked, never applied
+    const res = await noon(WED_NOON);
+    expect(res.applied.map((a) => a.runId)).toEqual([runId]);
+    expect((await lines(runId)).some((l) => l.line_state === "queued")).toBe(false);
+  });
+
   it("a click after the rule applied is refused", async () => {
     const runId = await newRun();
     await noon(TUE_NOON);

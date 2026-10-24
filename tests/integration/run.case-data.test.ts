@@ -106,6 +106,22 @@ describe("step 7: Claude reasons and the brief (LL-01..LL-04 through the databas
   });
 });
 
+describe("review M5 #2: the Claude step never blocks the run", () => {
+  it("out of time: every card keeps its template, no LLM call is made, and the run is done", async () => {
+    await service().from("run").update({ status: "ready", step_attempts: 99 }).eq("id", runId); // claims past the limit
+    await service().from("recommendation").update({ reason_source: "template" }).eq("run_id", runId);
+    let calls = 0;
+    const llm = async () => {
+      calls++;
+      return "x";
+    };
+    expect((await processRun(service(), runId, { caseDataMode: true, llm, llmBudgetMs: -1 })).status).toBe("done");
+    expect(calls).toBe(0);
+    const { data: brief } = await service().from("brief").select("source").eq("run_id", runId).single();
+    expect(brief!.source).toBe("template");
+  });
+});
+
 describe("loader: last week's zero stock is excluded (review finding 2, RU-12 through the database)", () => {
     it("a Sunday on-hand of 0 drops that week from the averages", async () => {
       // W43: SKU002 sells 10 because it ran out (on-hand 0 on Sunday 25 Oct); everything else normal.
