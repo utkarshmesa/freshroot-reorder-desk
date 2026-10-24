@@ -396,3 +396,4 @@ The Zoho failsafe (C-039). Use it when the week is blocked by a Zoho problem (`z
 | Date | Run by | Notes |
 |---|---|---|
 | 24 Oct 2026 | AI build team | First version |
+| 24 Oct 2026 | AI build team | First deploy on free plans (C-042): https://freshroot-reorder-desk.vercel.app, Vercel region bom1, shadow mode, rules v1. Sign-ups off; Supabase default email templates. First owner invited (planner + admin) |
