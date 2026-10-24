@@ -197,3 +197,20 @@ The replay already reports all three numbers, and prints the verdict under both 
 **What follows.**
 - If the gate passes only under "order MOQ", the pilot instructions must tell Raghav to order the MOQ on infeasible cards, unless the write-off risk is clearly worse. That is an Instructions change for Milestone 6, and it needs his agreement.
 - Under the defaults, about 6 in 10 perishable weeks give an infeasible card, which could flood the review queue. Real perishable MOQs (still awaited) settle how many. This is logged as a risk for the Milestone 5 queue design, not a change to D7 or D18.
+
+## C-035: Clarifications made while building Milestone 5
+
+**Status: Clarification (24 Oct 2026).** Implementation choices inside BUILD_PLAN v1.2 and ARCHITECTURE; no scope added, no business number changed.
+
+| # | Clarification | Why |
+|---|---|---|
+| a | Claude: `claude-sonnet-5-5` by default (`LLM_MODEL` overrides), low effort, server-side refusal fallback on. A refusal, timeout, outage or any unchecked number keeps the template text. | ARCHITECTURE §6 says a Sonnet-class model; short explanations need little reasoning |
+| b | Claude writes reasons only for cards Raghav reviews (queue and spot-checks). Every other line keeps the rule text. | ARCHITECTURE §4 step 7 |
+| c | In the brief, "at risk" means shelf stock runs out before an order placed now could arrive (days to stockout below the lead time). | Avoids inventing a threshold |
+| d | The pending-draft block (C-023) counts only **system** drafts (`FR-` references) for that vendor, not drafts procurement creates by hand. | CLAUDE.md: "one un-issued **system** draft per supplier" |
+| e | Before flagging a draft as stale (C-009), the noon cron reads it from Zoho by id. A draft issued since Monday is recorded as issued, not flagged. | Monday's read-back can be days old |
+| f | Changing a card's quantity needs no reason; rejecting one does. Ordering the MOQ on an infeasible card is a quantity change. | BUILD_PLAN §8.8 |
+| g | The rejection-rate alarm (5% / 40%, unit-weighted on the engine's quantity) is checked per run when the Tuesday rule applies. | ARCHITECTURE §8; one measurable point per week |
+| h | One Send per run at a time (row lease). Draft creation is never retried blindly on a server error: the draft is searched for by reference and adopted. | Prevents two drafts for one supplier-week (ZO-04) |
+| i | Without `RESEND_API_KEY`, alerts are stored and stay pending (admins can see them); nothing is lost. | Fail visible, not silent |
+| j | INSTRUCTIONS no longer mentions a thumbs-down on Claude's text (it was never in BUILD_PLAN). Each card shows whether its text is AI-written (numbers checked) or rule text. | Keep Instructions true to the app |

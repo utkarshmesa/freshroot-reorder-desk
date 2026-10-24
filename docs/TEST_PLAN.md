@@ -204,3 +204,20 @@ Extra Zoho tests:
 | 3 Zoho read | ZO-01…ZO-16 (mock fixtures recorded from the test org), RN-01 |
 | 5 Desk/drafts/LLM | ZO-04…06, ZO-14, ZO-16, TR-*, ST-*, CL-*, RN-*, OC-*, e2e 1–4 |
 | 6 Instructions | ST-07, e2e 5 |
+
+## Milestone 5: where each acceptance test lives
+
+Some file names above were planned before the code existed. The tests are here:
+
+| Tests | File |
+|---|---|
+| LL-01..LL-04 (outage, mismatch, no names in prompts, a brief every run), qty never read from LLM text | `lib/llm/llm.test.ts`; through the database in `tests/integration/run.case-data.test.ts` ("step 7") |
+| ST-04 shadow: no Zoho client, no writes | `lib/zoho/writer.test.ts`; `tests/integration/send.test.ts` ("shadow mode", "live is only live when the env says so"); `tests/e2e/weekly-flow.spec.ts` |
+| ZO-04 lost response, crash after `creating`, search lag; two sends at once | `lib/zoho/writer.test.ts`; `tests/integration/send.test.ts` |
+| ZO-14 created PO isn't a draft | `tests/integration/send.test.ts` |
+| ST-01 pending draft blocks the supplier; C-025 changed PO holds the line | `tests/integration/send.test.ts` |
+| Decisions: approve / change / reject, once only, planner only | `tests/integration/send.test.ts` ("decide_line"); `tests/e2e/weekly-flow.spec.ts` |
+| TS-03 Tuesday 12:00 rule; C-024 late run; TS-04 stale draft re-approval; TS-05 rejection alarm; missed upload; alert delivery | `lib/cron/schedule.test.ts`; `tests/integration/cron.test.ts` |
+| Send planning, effective mode, draft reference | `lib/send/plan.test.ts` |
+| OC-01..OC-04 outcomes (C-031 B, order speed, pilot vs manual, agreement) | `lib/outcomes/outcomes.test.ts` |
+| Milestone 5 exit, case data in the browser | `tests/e2e/weekly-flow.spec.ts` |

@@ -59,11 +59,12 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
    - Claude's explanation;
    - flags;
    - the **top 3 distributors** behind any change.
-3. For each card: **Approve**, **Change quantity**, or **Reject** (pick a reason and add a note). The reason is how the rules improve.
+3. For each card: **Approve**, **Change quantity** (a reason is optional), or **Reject** (pick a reason and add a note). The reason is how the rules improve. A card that has already been settled (for example by the Tuesday 12:00 rule) can't be decided again; reload the desk.
 4. **Spot-checks:** 5 cards a week are routine orders the system would have auto-approved. Check them like any other.
 5. **"Infeasible" cards** (usually perishables): the order the rules want is smaller than the supplier's minimum order. The card shows both choices with numbers: "order the minimum → cover after X weeks, above the maximum" or "skip → about N days to stockout". Pick one. Unreviewed infeasible cards are **not ordered** at Tuesday 12:00, so do these first.
-6. Press **Send to procurement**. A supplier's draft is created once all of that supplier's cards are decided. Anything left goes at Tuesday 12:00.
-7. Use **Settings → Holds** for anything the rules can't know (see section 6).
+6. Press **Send to procurement**. A supplier's draft is created once all of that supplier's cards are decided; the desk shows how many cards each supplier is still waiting on. Anything left goes at Tuesday 12:00.
+7. **Re-approve** stale drafts: a draft procurement hasn't issued within 3 days shows **Re-approve** in the desk's drafts table. Press it if the order is still right; procurement should not issue it before you do.
+8. Use **Settings → Holds** for anything the rules can't know (see section 6).
 
 ### Procurement head
 1. Open Zoho → Purchase Orders → Drafts. System drafts have references starting `FR-` (e.g. `FR-2026-W45-DIST001`).
@@ -173,7 +174,7 @@ If one stops being true, tell its owner. Most can be changed in Settings.
 | **Last week's draft still pending** | Procurement issues or deletes it. The new run won't create a second draft for that supplier until then. |
 | **Wrong quantity ordered** | Procurement edits or cancels in Zoho. Raghav rejects similar cards with the reason "Disagree with the rule". If it's a rule problem, change the rule in Settings with a reason. |
 | **Want to change a rule** | **Settings › Rules**. Edit and give a reason. It applies from the next run and is logged for Deepa. |
-| **Claude's explanation looks wrong** | Trust the numbers on the card; they come from the rules engine. Flag the explanation with the thumbs-down so IT can check. |
+| **Claude's explanation looks wrong** | Trust the numbers on the card; they come from the rules engine. Each card says whether its text is "AI-written, numbers checked" or standard "rule text". Tell IT which card read wrong. |
 | **Festival dates for next year** | **Settings › Festival calendar** each January. The run warns if next year is missing. |
 
 ---
@@ -202,5 +203,7 @@ If one stops being true, tell its owner. Most can be changed in Settings.
 | **Hold** | A note that tells the system "something unusual is happening here; let a person decide" |
 | **Draft** | A purchase order the system created in Zoho that procurement hasn't issued yet |
 | **Spot-check** | A routine order shown to Raghav to make sure auto-approval is working |
+| **Stockout week** | A week where the SKU's shelf was empty on Sunday, or sales were lost because there was no stock |
+| **Low cover** | Less than a week of stock on the shelf on Sunday. A warning, not a stockout: lean perishable shelves dip below a week before each delivery by design |
 | **Pilot / manual SKUs** | SKUs planned by the system vs by Raghav by hand, to prove the difference |
 | **Shadow mode** | The system runs but sends nothing to Zoho, so its suggestions can be compared with Raghav's |
