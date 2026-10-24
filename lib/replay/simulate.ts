@@ -5,16 +5,45 @@ import { isStockoutWeek } from "@/lib/outcomes";
 import type { IsoWeek } from "@/lib/isoweek";
 
 export type SimWeek = { week: IsoWeek; receipt: number; demand: number; sold: number; lost: number; writeOff: number; onHand: number; stockout: boolean };
-export type SimTotals = { weeks: number; received: number; demand: number; sold: number; lost: number; writeOff: number; stockoutWeeks: number; avgOnHand: number; closingOnHand: number };
+export type SimTotals = {
+  weeks: number;
+  received: number;
+  demand: number;
+  sold: number;
+  lost: number;
+  writeOff: number;
+  /** C-017: Sunday on-hand 0 or under one week of raw demand. */
+  stockoutWeeks: number;
+  /** Sunday on-hand exactly 0. */
+  zeroStockWeeks: number;
+  /** Weeks where some demand went unmet. */
+  lostSalesWeeks: number;
+  avgOnHand: number;
+  closingOnHand: number;
+};
 
 export class Simulator {
   private lots: Array<{ qty: number; age: number }>;
   private readonly rows: SimWeek[] = [];
   private readonly shelfLife: number | null;
 
-  /** Opening stock is treated as fresh (age 0): its real age isn't known. */
-  constructor(o: { opening: number; shelfLifeWks: number | null }) {
-    this.lots = o.opening > 0 ? [{ qty: o.opening, age: 0 }] : [];
+  /**
+   * The real age of opening stock isn't known. With weeklyDemand, it is assumed to have arrived evenly
+   * over the previous weeks (one week's demand per lot, oldest first, never older than the shelf life allows);
+   * without it, all fresh. Both arms get the same assumption.
+   */
+  constructor(o: { opening: number; shelfLifeWks: number | null; weeklyDemand?: number }) {
+    this.lots = [];
+    let left = o.opening;
+    const chunk = o.weeklyDemand && o.weeklyDemand > 0 ? o.weeklyDemand : left;
+    const maxAge = o.shelfLifeWks === null ? Number.POSITIVE_INFINITY : o.shelfLifeWks - 1;
+    let age = 0;
+    while (left > 0) {
+      const qty = Math.min(chunk, left);
+      this.lots.unshift({ qty, age: Math.min(age, maxAge) });
+      left -= qty;
+      age++;
+    }
     this.shelfLife = o.shelfLifeWks;
   }
 
@@ -60,6 +89,8 @@ export class Simulator {
       lost: sum((r) => r.lost),
       writeOff: sum((r) => r.writeOff),
       stockoutWeeks: sum((r) => (r.stockout ? 1 : 0)),
+      zeroStockWeeks: sum((r) => (r.onHand === 0 ? 1 : 0)),
+      lostSalesWeeks: sum((r) => (r.lost > 0 ? 1 : 0)),
       avgOnHand: this.rows.length ? sum((r) => r.onHand) / this.rows.length : 0,
       closingOnHand: this.onHand,
     };

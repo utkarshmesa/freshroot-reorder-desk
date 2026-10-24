@@ -31,9 +31,15 @@ export type ReplayOptions = {
   /** What Raghav does with an infeasible perishable card: skip (rules as written) or order the MOQ. */
   infeasible?: "skip" | "moq";
   seed?: number;
+  /**
+   * Sum distributors with nothing distributor-specific (no start/end week, no distributor hold) into one stream
+   * before the engine sees them. Exact: Σ over distributors of their mean over the same weeks = the mean of the sum.
+   * Default true; false is for the equivalence test.
+   */
+  aggregatePlainDistributors?: boolean;
 };
 
-export type ArmResult = SimTotals & { orders: number; unitsOrdered: number };
+export type ArmResult = SimTotals & { opening: number; orders: number; unitsOrdered: number };
 
 export type SkuReplay = {
   skuId: string;
@@ -45,6 +51,7 @@ export type SkuReplay = {
   rules: ArmResult | null;
   weeklyTriage: Array<{ week: IsoWeek; triage: Recommendation["triage"]; action: Recommendation["action"] }>;
   stats: { reorderWeeks: number; queueWeeks: number; autoWeeks: number; infeasibleWeeks: number; borderlineWeeks: number; hdWithUplift: number; hdBelowNormal: number; imputedWeeks: number };
+  qa: { trackingMeanAbs: number | null; trackedWeeks: number; inferredLossSigned: number } | null;
 };
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
@@ -79,14 +86,21 @@ export function replaySku(d: SkuData, o: ReplayOptions): SkuReplay {
   const idx = new Map(weeks.map((w, i) => [w, i]));
 
   // Actual net sales per week, and actual distributor rows per week (to rebuild the rules arm's history).
+  const special = new Set<string>();
+  for (const dist of o.distributors) if (dist.startWeek || dist.endWeek) special.add(dist.id);
+  for (const e of o.events) if (e.type === "hold" && (e.skuIds.length === 0 || e.skuIds.includes(sku.id))) e.distributorIds.forEach((x) => special.add(x));
+  const aggregate = o.aggregatePlainDistributors ?? true;
   const net = weeks.map(() => 0);
   const rowsByWeek = weeks.map((): SalesRow[] => []);
+  const plain = weeks.map(() => 0);
   for (const r of d.sales) {
     const i = idx.get(r.week);
     if (i === undefined) continue;
     net[i]! += r.shipped - r.returns;
-    rowsByWeek[i]!.push(r);
+    if (aggregate && !special.has(r.distributorId)) plain[i]! += r.shipped - r.returns;
+    else rowsByWeek[i]!.push(r);
   }
+  if (aggregate) weeks.forEach((w, i) => plain[i] !== 0 && rowsByWeek[i]!.push({ skuId: sku.id, distributorId: "_PLAIN", week: w, shipped: plain[i]!, returns: 0 }));
   const receipts = weeks.map((w) => d.receipts[w] ?? 0);
   const stock = rebuildStock(weeks, net, receipts, d.stockHistory);
 
@@ -115,17 +129,37 @@ export function replaySku(d: SkuData, o: ReplayOptions): SkuReplay {
     rules: null,
     weeklyTriage: [],
     stats: { reorderWeeks: 0, queueWeeks: 0, autoWeeks: 0, infeasibleWeeks: 0, borderlineWeeks: 0, hdWithUplift: 0, hdBelowNormal: 0, imputedWeeks },
+    qa: null,
   };
   if (weeks.length <= warmup || stock.source === "none") return result;
   const opening = stock.onHand[warmup - 1]!;
+  const weeklyDemand = mean(demand.slice(0, warmup));
 
   // ---- Actual arm: Raghav's real receipts through the simulator.
-  const actual = new Simulator({ opening, shelfLifeWks: shelfLife });
-  for (let i = warmup; i < weeks.length; i++) actual.step({ week: weeks[i]!, receipt: receipts[i]!, demand: demand[i]!, reference: reference[i]! });
-  result.actual = { ...actual.totals(), orders: receipts.slice(warmup).filter((x) => x > 0).length, unitsOrdered: receipts.slice(warmup).reduce((a, b) => a + b, 0) };
+  const actual = new Simulator({ opening, shelfLifeWks: shelfLife, weeklyDemand });
+  let gap = 0;
+  let gapWeeks = 0;
+  for (let i = warmup; i < weeks.length; i++) {
+    const row = actual.step({ week: weeks[i]!, receipt: receipts[i]!, demand: demand[i]!, reference: reference[i]! });
+    const real = d.stockHistory[weeks[i]!];
+    if (real !== undefined) {
+      gap += Math.abs(row.onHand - real);
+      gapWeeks++;
+    }
+  }
+  result.actual = { ...actual.totals(), opening, orders: receipts.slice(warmup).filter((x) => x > 0).length, unitsOrdered: receipts.slice(warmup).reduce((a, b) => a + b, 0) };
+  // Method QA (REPLAY_SPEC §4): how far the simulated actual arm drifts from the real SAP stock, and the
+  // inferred loss in the real history (C-014 option A: positive residuals only shown here, signed in the JSON).
+  let inferredLoss = 0;
+  for (let i = warmup; i < weeks.length; i++) {
+    const prev = d.stockHistory[weeks[i - 1]!];
+    const now = d.stockHistory[weeks[i]!];
+    if (prev !== undefined && now !== undefined) inferredLoss += prev + receipts[i]! - net[i]! - now;
+  }
+  result.qa = { trackingMeanAbs: gapWeeks ? gap / gapWeeks : null, trackedWeeks: gapWeeks, inferredLossSigned: inferredLoss };
 
   // ---- Rules arm: the engine every Monday on what the rules would have seen.
-  const sim = new Simulator({ opening, shelfLifeWks: shelfLife });
+  const sim = new Simulator({ opening, shelfLifeWks: shelfLife, weeklyDemand });
   const inTransit: Array<{ arrive: number; qty: number; placed: IsoWeek }> = [];
   const armSold: number[] = net.map((x) => Math.max(0, x)); // before the replay starts, history is the actual history
   const armOnHand: Array<number | null> = [...stock.onHand];
@@ -203,13 +237,13 @@ export function replaySku(d: SkuData, o: ReplayOptions): SkuReplay {
     armSold[i] = row.sold;
     armOnHand[i] = row.onHand;
   }
-  result.rules = { ...sim.totals(), orders, unitsOrdered };
+  result.rules = { ...sim.totals(), opening, orders, unitsOrdered };
   return result;
 }
 
 // ---------- across SKUs ----------
 
-export type Totals = { stockoutWeeks: number; lost: number; writeOff: number; avgOnHand: number; unitsOrdered: number; orders: number };
+export type Totals = { stockoutWeeks: number; zeroStockWeeks: number; lostSalesWeeks: number; lost: number; writeOff: number; avgOnHand: number; unitsOrdered: number; orders: number };
 export type Interval = { estimate: number; low: number; high: number };
 export type ReplaySummary = {
   reading: Reading;
@@ -218,7 +252,7 @@ export type ReplaySummary = {
   compared: number;
   actual: Totals;
   rules: Totals;
-  diff: { stockoutWeeks: Interval; writeOff: Interval; lost: Interval };
+  diff: { stockoutWeeks: Interval; lostSalesWeeks: Interval; writeOff: Interval; lost: Interval };
   replayWeeks: number;
   firstWeek: IsoWeek | null;
   lastWeek: IsoWeek | null;
@@ -228,6 +262,8 @@ export type ReplaySummary = {
 
 const total = (xs: ArmResult[]): Totals => ({
   stockoutWeeks: xs.reduce((a, x) => a + x.stockoutWeeks, 0),
+  zeroStockWeeks: xs.reduce((a, x) => a + x.zeroStockWeeks, 0),
+  lostSalesWeeks: xs.reduce((a, x) => a + x.lostSalesWeeks, 0),
   lost: xs.reduce((a, x) => a + x.lost, 0),
   writeOff: xs.reduce((a, x) => a + x.writeOff, 0),
   avgOnHand: xs.reduce((a, x) => a + x.avgOnHand, 0),
@@ -288,6 +324,8 @@ export function replayAll(data: SkuData[], o: ReplayOptions): ReplaySummary {
     result = fewerStockouts && fewerWriteOffs ? "PASS" : "FAIL";
     reasons.push(`Stockout weeks: rules ${rules.stockoutWeeks} vs actual ${actual.stockoutWeeks} (${fewerStockouts ? "fewer" : "not fewer"}).`);
     reasons.push(`Write-off units: rules ${round(rules.writeOff)} vs actual ${round(actual.writeOff)} (${fewerWriteOffs ? "fewer" : "not fewer"}).`);
+    const altPass = rules.lostSalesWeeks < actual.lostSalesWeeks && fewerWriteOffs;
+    reasons.push(`Under the alternative stockout definition (weeks with lost sales, C-031 proposed): rules ${rules.lostSalesWeeks} vs actual ${actual.lostSalesWeeks}, so the result would be ${altPass ? "PASS" : "FAIL"}.`);
   }
   const missing = skus.filter((s) => !(s.actual && s.rules)).length;
   if (missing) reasons.push(`${missing} SKU(s) left out of the comparison (no stock history or too few weeks).`);
@@ -299,7 +337,7 @@ export function replayAll(data: SkuData[], o: ReplayOptions): ReplaySummary {
     compared: both.length,
     actual,
     rules,
-    diff: { stockoutWeeks: bootstrapSum(diffs((a) => a.stockoutWeeks)), writeOff: bootstrapSum(diffs((a) => a.writeOff)), lost: bootstrapSum(diffs((a) => a.lost)) },
+    diff: { stockoutWeeks: bootstrapSum(diffs((a) => a.stockoutWeeks)), lostSalesWeeks: bootstrapSum(diffs((a) => a.lostSalesWeeks)), writeOff: bootstrapSum(diffs((a) => a.writeOff)), lost: bootstrapSum(diffs((a) => a.lost)) },
     replayWeeks,
     firstWeek: o.weeks[warmup] ?? null,
     lastWeek: o.weeks.at(-1) ?? null,

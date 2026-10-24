@@ -33,13 +33,21 @@ Comparing a simulation of the rules against raw history would be biased: history
 
 ## 3. The simulator (pure: `lib/replay/simulate.ts`)
 Per SKU, per week, in order:
+0. **Opening stock:** its real age is unknown. It is assumed to have arrived evenly over the previous weeks (one week's demand per lot, never older than the shelf life allows), the same for both arms. Treating it all as fresh made every opening lot expire on the same day, a simulator artefact.
 1. Receipts due this week arrive as a new lot (age 0).
 2. Demand is served from the oldest lot first (FIFO). Anything unmet is a lost sale.
 3. Lots age one week. For perishables, a lot that reaches the shelf life is **written off**.
    - Shelf life is from the master.
    - If it's missing, it's 2 × the perishable max cover (D18: max = ½ shelf life, so 8 weeks by default), marked "assumed".
 4. The Sunday on-hand is recorded.
-5. **Stockout week** (C-017): on-hand 0, or on-hand < one week of raw clean a12. Both arms use the same reference series.
+5. **Stockout week**, reported three ways (C-031 is pending):
+   - C-017: on-hand 0, or under one week of raw clean a12;
+   - weeks with lost sales;
+   - weeks with zero on-hand.
+
+   Both arms use the same reference series.
+
+**Speed:** distributors with nothing distributor-specific (no start or end week, no distributor hold) are summed into one stream before the engine sees them. This is exact, and a test checks it.
 
 **Rules arm:** each Monday, the **real engine** (`lib/engine`, unchanged) runs on what the rules would have seen:
 - that arm's own simulated sales history;

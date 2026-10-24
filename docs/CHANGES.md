@@ -137,3 +137,21 @@ BUILD_PLAN §8 says: "Q = std × (1.5 if HD else 1); raise in std steps until P 
 |---|---|---|
 | a | **Zoho test org deferred.** Creating a Zoho Inventory organisation failed with Zoho error 6063 on this account (two tries in the built-in browser). The ADR-0002 scope check (ZO-13), the recorded fixtures and the M1 exit item stay open until an org exists. The refresh token is saved in `.env.zoho-test` for when it does. | Deferred by Utkarsh |
 | b | **The replay reads files directly** (`scripts/replay`), not the `backfill_sales` table. It's a one-off batch, so loading 19M rows into Postgres buys nothing. The table stays available. | Implementation detail; refines C-023g |
+
+## C-031: The stockout-week definition (C-017) counts the plan's own perishable policy as stockouts
+
+**Status: Proposed. Needs your decision before the day-45 gate is judged.** Found while building the replay (Milestone 4).
+
+**What happens.** C-017 defines a stockout week as SAP on-hand at Sunday = 0 **or below one week of raw demand**. The perishable band (D7: 4 weeks of *position* with the default 2-week lead time) is designed to keep only about 1–2 weeks on the shelf, because the rest is on order. So the Sunday shelf routinely dips below one week just before the next delivery, **even though nothing runs out and no sale is lost**.
+
+**Evidence** (synthetic replay, 100 SKUs × 3 years, *not* Freshroots data): the rules arm had **0 lost sales and 0 empty-shelf weeks**, but **1,299 C-017 "stockout weeks"**, all on perishables. Under C-017 as approved, a well-run perishable policy fails the gate.
+
+| Option | Stockout week = | Live data needed | Effect |
+|---|---|---|---|
+| A: keep C-017 | on-hand 0 or < 1 week of demand | SAP on-hand | Penalises lean perishable stock; the gate may fail for the wrong reason |
+| **B (recommended)** | on-hand 0 at the Sunday snapshot **or** a week with lost sales (ordered_units > shipped, when supplied) | SAP on-hand; ordered_units if available | Measures the harm the plan cares about (lost sales). "Low cover" (< 1 week on the shelf) is reported alongside as a warning, not counted as a stockout |
+| C | the original §8.10 wording: on-hand 0 or position cover < 1 | SAP + Zoho | In-transit stock can hide a real empty shelf (why C-017 was adopted) |
+
+The replay already reports all three numbers, and prints the verdict under both A and B.
+
+**Tie rule (also needs a decision):** if both arms have 0 lost-sales weeks, "fewer" can't be met. **Recommended:** count the stockout test as passed when the rules arm has **no more** stockout weeks than the actual arm, and write-offs are strictly fewer.

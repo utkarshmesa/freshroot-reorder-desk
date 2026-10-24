@@ -13,7 +13,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test",
-    "replay": "node --experimental-strip-types scripts/replay/index.ts",
+    "replay": "tsx scripts/replay/index.ts",
     "test:zoho-live": "vitest run --config vitest.live.config.ts"
   },
   "dependencies": {
@@ -36,6 +36,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.2",
     "supabase": "^2.122.0",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vitest": "^5.0.5"
   }

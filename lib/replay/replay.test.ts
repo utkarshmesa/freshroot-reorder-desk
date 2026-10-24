@@ -89,6 +89,26 @@ describe("rules arm vs actual arm", () => {
   });
 });
 
+describe("plain-distributor aggregation is exact", () => {
+  it("gives the same results as running every distributor separately", () => {
+    const w = weeksOf(40);
+    const sales: SalesRow[] = [];
+    w.forEach((wk, i) => {
+      for (let d = 0; d < 6; d++) if ((i + d) % 3 !== 0) sales.push({ skuId: "S1", distributorId: `D${d}`, week: wk, shipped: 20 + ((i * 7 + d * 13) % 30), returns: d === 2 ? 1 : 0 });
+    });
+    const distributors = [
+      { id: "D0", status: "active" as const, startWeek: null, endWeek: null },
+      { id: "D5", status: "active" as const, startWeek: w[20]!, endWeek: null }, // a new distributor stays separate (D2)
+    ];
+    const data: SkuData = { sku: sku({ stdQty: 100 }), sales, receipts: {}, stockHistory: { [w[12]!]: 400 } };
+    const base = { rules: DEFAULT_RULES, weeks: w, events: [], distributors };
+    const a = replaySku(data, { ...base, aggregatePlainDistributors: true });
+    const b = replaySku(data, { ...base, aggregatePlainDistributors: false });
+    expect(a.rules).toEqual(b.rules);
+    expect(a.weeklyTriage).toEqual(b.weeklyTriage);
+  });
+});
+
 describe("the gate verdict", () => {
   // Perishable, demand 100/wk. Actual: a 1,600 lot every 16 weeks → half expires, then empty shelves.
   // Rules: steady small orders → fewer stockouts and fewer write-offs → PASS.
