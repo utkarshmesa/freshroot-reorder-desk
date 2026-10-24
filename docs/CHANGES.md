@@ -229,3 +229,15 @@ The replay already reports all three numbers, and prints the verdict under both 
 | 8 | The PO date was the UTC date | Fixed: IST date |
 | 9 | An unknown Zoho status didn't count as pending, and a missing timestamp didn't hold the line | Fixed: both now fail closed (pending, or line held) |
 | 10 | The desk and the send counted drafts in different modes | Fixed: both use the effective mode |
+
+## C-036: Built for Step 3 (runnable without us)
+
+**Status: Clarification (24 Oct 2026).** These items were planned in ARCHITECTURE but not yet built, and were found while writing the runbook and deploy checklist. No new scope, no business numbers.
+
+| # | What | Why |
+|---|---|---|
+| a | **Retry run** button for admins on the Review desk (`retry_run`). A run blocked before its queue existed restarts from the beginning; one blocked later returns to done with decisions kept. A reason is required and logged. | ARCHITECTURE §4 promised it; without it IT would edit run rows by hand |
+| b | **Email sign-in links** (`/auth/confirm`, token-hash templates; "Email me a sign-in link" on the sign-in page). Invites from Settings → People now work on a hosted deploy. It never creates accounts. | ARCHITECTURE §9 (magic link). The app had only the local password sign-in, so invited people couldn't get in |
+| c | `supabase/bootstrap.sql`, generated with the seed: shadow mode, rules v1, reason codes; no users; safe to run twice. | Production must never get the local test users from `seed.sql` |
+| d | The shadow period runs on a **read-only Zoho token**; the create-scoped token is installed at go-live (RUNBOOK §7). | Makes a Zoho write impossible during shadow while the scope check (risk K1) is still open |
+| e | Holiday weeks: pause the noon job (RUNBOOK §11). | The interim C-021 promised |

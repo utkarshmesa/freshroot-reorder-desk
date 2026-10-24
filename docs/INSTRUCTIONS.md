@@ -40,6 +40,8 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
 
 ## 3. Guides by role
 
+**Signing in:** on the sign-in page, choose **Email me a sign-in link** and open the email on the same device. Each link works once. New people are added by the IT admin (Settings → People) and get an invitation email.
+
 ### Uploader (Priya)
 1. Export from SAP using the saved layouts:
    - `sales_weekly`: last complete week(s);
