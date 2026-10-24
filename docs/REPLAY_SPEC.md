@@ -1,5 +1,7 @@
 # Replay spec: the day-45 gate (C-020)
 
+> **Status (24 Oct 2026, C-037):** the data Freshroots has (16 weeks, no receipts, no history) can't support this gate, so it was replaced by the shadow safety gate (STRESS_TEST_STEP4 §3). The tool stays available (`npm run replay`) for when a multi-year export exists.
+
 **Question the gate answers** (BUILD_PLAN §1): over the last 3 years, would the weekly rules have produced **fewer stockout weeks and fewer write-off units** than what actually happened? If not, redesign before continuing.
 
 **Principle:** compare like with like. Both arms run through the **same** weekly simulator, with the same demand and the same perishable ageing. Only the receipts differ:

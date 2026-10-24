@@ -26,8 +26,8 @@
 | K1 | Zoho scope check never run; the test org is deferred | **Critical** | Create the test org, run `ZOHO_LIVE=1 npm run test:zoho-live`, record real responses (ADR-0002) |
 | K2 | No write-off data source (C-014) | **High** | SAP answer on write-offs; without it, half the success measure can't be shown |
 | K3 | Perishable band narrower than the MOQ: most perishable weeks infeasible | **High** | Real perishable MOQs and shelf lives in Settings; Raghav agrees the infeasible-card practice (C-034) |
-| K4 | Day-45 gate not yet run on real data | **High** | 3-year SAP export with receipts, weekly stock, shelf life, MOQ, and `ordered_units` if possible |
-| K5 | Zoho API field and filter names unverified | **High** | Same as K1: record real responses and turn them into mock fixtures |
+| K4 | Day-45 gate can't run on the data Freshroots has | ~~High~~ Replaced | C-037: shadow safety gate on 4 shadow weeks, compared with Raghav's actual orders (C-038) |
+| K5 | Zoho API field and filter names unverified | Medium | Every PO is now listed and an unknown status blocks (F5). Confirm in the test org. If Zoho isn't available, the failsafe (C-039) runs the week from files |
 
 ## Register
 
@@ -43,6 +43,8 @@
 | D4 | **Manual upload is the weakest link** (BUILD_PLAN §15): late, wrong file, Excel re-save. | Medium | Medium | Medium | Strict validation; missed-upload alert at 10:00 to the backup uploader, Raghav and Deepa; corrections within 12 weeks; RUNBOOK §1. | Priya | Accepted |
 | D5 | **SAP and Zoho record a receipt on different days** (A3): stock briefly double-counted. | Medium | Medium | Medium | Position uses Zoho receipts dated Monday or later only. Shadow weeks check it; fix the cut-off with SAP if seen. | IT admin | Open (check in shadow) |
 | D6 | **Holdout chosen by hand** biases pilot vs manual (C-019 proposed: stratified random draw). The statistical method is still pending. | Medium | High | High | Decide C-019 before go-live. Until then, pilot vs manual is shown as rates without significance. | Deepa | Open |
+| D8 | **The only data is the 16-week case set** (STRESS_TEST_STEP4 §0): no history, receipts, write-offs, lead time, MOQ or shelf life. | High | High | **High** | C-040 accepts these layouts in production. Collect lead time, MOQ, pack size and shelf life from procurement before shadow. Gate on shadow evidence (C-037). Inferred loss as the write-off measure once weekly snapshots and receipts accumulate. | Raghav / Procurement | Open |
+| D9 | **15 SKUs can't prove pilot beats manual** (about 3 manual SKUs). | High | Medium | High | Treat the pilot as a safety and workflow test; prove it at the 400-SKU rollout (C-019). The Outcomes page says so. | Deepa | Accepted |
 | D7 | **Case data can't exercise distributor features** (BUILD_PLAN §15): one synthetic `ALL` distributor. | High | Low | Medium | Synthetic test files cover D2/D3 and holds (W44 golden, engine tests). | Utkarsh | Accepted |
 
 ### Ordering and money
@@ -55,6 +57,8 @@
 | O3 | **An old week sends drafts** after the next week's run has read Zoho. | Low | High | Medium | The noon job handles only the latest week, until its week ends (M5 review #4). Tested. | — | Closed |
 | O4 | **Double order** when a PO changes in Zoho between Monday's read and Send, or an old draft is issued mid-week. | Medium | High | High | C-025 line hold; C-023 pending-draft block for the whole week; drafts never count as stock. Tested. | — | Mitigated |
 | O5 | **Deadline rule fires during a holiday** (C-021 proposed; deferred to v1.1). | Medium | Medium | Medium | Interim: pause the noon job for a holiday week (RUNBOOK §11). | Deepa | Accepted |
+| O7 | **Zoho failsafe week with an incomplete open-PO file** understates stock on order, causing a double order (C-039). | Low | High | Medium | Owner-only switch with a reason; procurement certifies "complete as of Monday 00:00"; the desk shows the file's totals; an unplaced earlier sheet holds its supplier; kill criterion in RUNBOOK §12. | Deepa / Procurement head | Mitigated |
+| O8 | **Same-week data correction after drafts were sent** (F4). | Low | Medium | Low | Decisions carry over where unchanged; sent drafts stay; planner and procurement alerted with old vs new quantities. | Raghav | Mitigated |
 | O6 | **Rubber-stamp reviews** hide bad recommendations. | Medium | Medium | Medium | 5 random spot-checks a week; rejection-rate alarm below 5% or above 40%; monthly review. | Deepa | Mitigated |
 
 ### Systems and security
@@ -78,3 +82,4 @@
 | Date | Change |
 |---|---|
 | 24 Oct 2026 | First version, from BUILD_PLAN §15, STRESS_TEST_STEP1 R1–R3, STRESS_TEST_REPLAY F1–F7, the M5 review and CHANGES up to C-035 |
+| 24 Oct 2026 | Step 4 stress test: K4 replaced by C-037; K5 lowered (F5, C-039); D8, D9, O7, O8 added |

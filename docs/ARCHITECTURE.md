@@ -319,6 +319,16 @@ All filter parameter names (status values, reference search, receipt date range)
 
 ---
 
+### 5.1 Zoho failsafe (C-039)
+
+When the Zoho read fails or Zoho isn't connected, the run blocks (fail closed). The owner may then run the week from files:
+- `lib/filemode/parse.ts` (pure) validates an open-PO file and an optional receipts file: Zoho status names, known SKUs, sane numbers.
+- `use_file_mode` (owner only, logged) stores the result as the run's `zoho_read` with `source: "file"` and moves the run to the engine step. The rules see the same PO lines and receipts a Zoho read would give.
+- Send: `effectiveMode = live` + `run.source = file` gives mode `file`. It writes one `draft_po` per supplier per week (mode `file`), with no Zoho call. Procurement downloads the CSV sheet (`/review/sheet`) and confirms **placed** (`confirm_placed`, status `issued`).
+- An earlier unplaced sheet holds its supplier, the file-mode form of the C-023 pending-draft rule.
+
+---
+
 ## 6. Claude (lib/llm)
 
 - **Model:** from `LLM_MODEL` env (default a current Sonnet-class model). Timeout 20 s per call, concurrency 5, no retries beyond 1.

@@ -1,6 +1,6 @@
 # Stress test: the built system and the plan ahead (before building more)
 
-**Date:** 24 Oct 2026 · **Asked by:** Utkarsh ("stress test the built and next plan once before building new things") · **Status:** findings and proposals. Nothing in here is built yet.
+**Date:** 24 Oct 2026 · **Asked by:** Utkarsh ("stress test the built and next plan once before building new things") · **Status:** decided and built (24 Oct 2026). F2–F11 fixed; C-037, C-038, C-039 (option B) and C-040 adopted and built. Decisions in CHANGES C-037…C-040.
 
 ## 0. The data we actually have
 

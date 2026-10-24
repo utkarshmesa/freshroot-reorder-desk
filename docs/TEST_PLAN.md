@@ -221,3 +221,15 @@ Some file names above were planned before the code existed. The tests are here:
 | Send planning, effective mode, draft reference | `lib/send/plan.test.ts` |
 | OC-01..OC-04 outcomes (C-031 B, order speed, pilot vs manual, agreement) | `lib/outcomes/outcomes.test.ts` |
 | Milestone 5 exit, case data in the browser | `tests/e2e/weekly-flow.spec.ts` |
+
+## Step 4 stress-test fixes and the Zoho failsafe: where the tests live
+
+| Tests | File |
+|---|---|
+| F2 SKU master keeps Settings values; F3 hold only on position changes; F4 same-week correction; F7 blocked-supplier alert; F11 send failure tells the planner | `tests/integration/stress-fixes.test.ts` |
+| F5 every Zoho PO listed, unknown status blocks | `lib/zoho/zoho.test.ts` |
+| F8 a Zoho outage retries, then blocks | `tests/integration/run.zoho.test.ts` |
+| F9 festival dates missing for a year | `lib/engine/w43.golden.test.ts` |
+| F6 unit-weighted agreement; C-038 manual-order comparison | `lib/outcomes/outcomes.test.ts`; `tests/e2e/weekly-flow.spec.ts` |
+| C-040 case layouts in production (Zoho read on) | `lib/upload/case-data.test.ts`; `tests/integration/c040.test.ts` |
+| C-039 file mode: parsing, owner switch, rules on the file, PO sheets, Placed, pending sheet, shadow unchanged | `lib/filemode/parse.test.ts`; `tests/integration/filemode.test.ts` |

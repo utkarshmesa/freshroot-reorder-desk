@@ -76,7 +76,7 @@ There is no CI yet, so run these locally on the commit being deployed. All must 
   | `ANTHROPIC_API_KEY` | production key (`LLM_MODEL` empty = `claude-sonnet-5-5`) |
   | `RESEND_API_KEY`, `ALERT_EMAIL_FROM` | Resend; from-address on the verified domain |
   | `CRON_SECRET` | a new random value, 32+ characters |
-  | `CASE_DATA_MODE` | **not set** (case data only ever in non-production projects, C-023g) |
+  | `CASE_DATA_MODE` | **not set**. Production still accepts Freshroots' current file layouts (C-040); case-data mode only means a demo project with Zoho skipped |
 
 - [ ] **Preview** environment: a separate (non-production) Supabase project or none, and a read-only Zoho token or none (ADR-0005). Never the production service key.
 - [ ] No secret appears in any `NEXT_PUBLIC_` variable.
@@ -129,6 +129,7 @@ There is no CI yet, so run these locally on the commit being deployed. All must 
 
   Each signs in once through their invite link.
 - [ ] **Settings data** (Raghav, with procurement's input): SKUs with supplier, Zoho item id, lead time, MOQ, shelf life, perishability; distributors; suppliers with Zoho vendor ids; festival dates; holdout list (Deepa).
+- [ ] **No Zoho yet?** Leave the `ZOHO_*` variables unset. Each week will block with `zoho_not_connected`, and Deepa runs it from procurement's open-PO file (RUNBOOK §12). Nothing is ever written to Zoho.
 - [ ] **Zoho read** (needs the Settings data): the first real run, after Monday's upload, reaches the queue without `zoho_*` blocks.
   - If it blocks, RUNBOOK §2.
   - Zoho's audit log for the integration user shows **only reads**.

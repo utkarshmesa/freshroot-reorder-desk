@@ -252,3 +252,8 @@ The replay already reports all three numbers, and prints the verdict under both 
 | C-038 | Shadow compares the system with **Raghav's actual orders** per SKU-week (from the open-PO read), not only his decisions on the system's cards | Agreement on cards he has already seen is anchored; there's no record of his manual plan | C-018; Outcomes |
 | C-039 | **Zoho failsafe (file mode)**, option B: open-PO and receipts file in; per-supplier PO sheet out; "placed" confirmation; explicit owner switch per week | Without Zoho every week is blocked (fail closed); no Zoho org could be created | BUILD_PLAN §8.1, §9; guardrails kept (default fail closed, one pending order per supplier) |
 | C-040 | Accept the case file layouts in production, separate from case-data mode | Freshroots has only ever produced these layouts; case mode skips Zoho | BUILD_PLAN §7 upload contract |
+
+**Built (24 Oct 2026):** F2–F11 fixed with tests; C-038 comparison on the Outcomes page; C-039 file mode; C-040 layouts. Notes:
+- C-039 gives procurement one write in the app, **Placed** on a file-mode PO sheet. This is a narrow exception to C-013 (procurement read-only); it never touches Zoho.
+- In file-mode weeks, triage stays as usual (auto-approve still applies). The open question from the nine checks was settled in favour of the simplest option. The owner switch, procurement's certification and the pending-sheet rule are the human gates.
+- C-037's gate is described in STRESS_TEST_STEP4 §3 and RUNBOOK §7. It is judged by people on the Outcomes evidence, not computed by the app.

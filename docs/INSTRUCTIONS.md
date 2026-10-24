@@ -44,8 +44,8 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
 
 ### Uploader (Priya)
 1. Export from SAP using the saved layouts:
-   - `sales_weekly`: last complete week(s);
-   - `stock_snapshot`: stock **as at Sunday 23:59**.
+   - weekly sales: last complete week(s). Either per distributor (`sales_weekly`) or per SKU as today (`weekly_sales`: SKU_ID, Week, Units_Sold). With per-SKU sales the distributor features are off;
+   - stock: **as at Sunday 23:59** (`stock_snapshot`, or `current_inventory` dated the Monday).
 2. Go to **Upload**, drop both files and read the **validation report**.
 3. Fix anything red. Yellow items need a **Confirm** (e.g. volume changed more than {{volumeChangeConfirmPct=40}}% ⚙ vs last week).
 4. Press **Commit**. Either everything is accepted or nothing is.
@@ -77,7 +77,11 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
 6. Only one system draft per supplier exists at a time. **If last week's draft is still pending when Monday's run starts, no new draft is created for that supplier that week**, even if you issue the old one on Tuesday. This week's quantities were worked out without it, so creating one would order twice. Those items come back next Monday.
 7. **Placing or changing a PO in Zoho on Monday or Tuesday** for a SKU in this week's run? That SKU's line is held back from the system draft and comes back next Monday, so nothing is ordered twice.
 8. **Close or cancel PO lines that won't be delivered.** Open quantity counts as stock on order. Lines past their expected delivery date are flagged on Raghav's card.
-9. Lead times, minimum order quantities and Zoho item mappings: send changes to **Raghav**, who updates **Settings › SKUs**. Procurement has read-only access in the app.
+9. Lead times, minimum order quantities and Zoho item mappings: send changes to **Raghav**, who updates **Settings › SKUs**. Procurement has read-only access in the app, except one button (below).
+10. **Weeks when Zoho can't be used (Zoho failsafe):**
+    - Deepa may ask you for the open purchase orders as at Monday 00:00 (the columns are in the runbook) and for your confirmation that the list is complete.
+    - That week, orders come as **PO sheets** on the Review desk instead of Zoho drafts. **Download sheet**, place the order with the supplier, then press **Placed**.
+    - A sheet not marked placed holds that supplier the next week.
 
 ### Head of Operations (Deepa)
 - **Outcomes** page: pilot vs manual SKUs, stockout weeks, write-offs, order speed, rejection rate, spot-check results.
@@ -87,6 +91,8 @@ Every Monday it takes the latest SAP sales and stock files and the open purchase
   - drafts left un-issued.
 - Monthly: read the **rule-change log**.
 - **Shadow → live:** switching in Settings takes effect from **next Monday's run**, never mid-week.
+- **Zoho failsafe:** if Zoho blocks a week and can't be fixed in time, you can run the week from procurement's open-PO file (Review desk → "Run this week from files"). Only you can, and it's logged.
+- **Go-live gate:** 4 shadow weeks compared with Raghav's actual orders (Outcomes page), not a 3-year back-test: there isn't enough history for one.
 
 ### CEO
 Read the **weekly brief** on the Outcomes page: what was ordered, what's at risk, and how the pilot SKUs are doing against the manually planned ones.
@@ -172,7 +178,7 @@ If one stops being true, tell its owner. Most can be changed in Settings.
 | **Competitor scheme spotted** | Raghav or field reps add a **hold** with a note; the SKU comes to Raghav. |
 | **One-off bulk order** (institutional, event) | Add a **hold** on that distributor and week so it's left out of averages. |
 | **Raghav on leave** | Deepa reviews as backup. Set the backup dates in **Settings › People**. |
-| **Zoho is down on Monday** | The run is blocked and IT gets an alert. If it isn't fixed by Tuesday, Raghav plans that week manually as before. |
+| **Zoho is down on Monday** | The system retries every 5 minutes for about half an hour, then blocks the run and alerts IT. If Zoho can't be fixed in time, Deepa can run the week from procurement's open-PO file (Zoho failsafe). Otherwise Raghav plans that week by hand as before. |
 | **Last week's draft still pending** | Procurement issues or deletes it. The new run won't create a second draft for that supplier until then. |
 | **Wrong quantity ordered** | Procurement edits or cancels in Zoho. Raghav rejects similar cards with the reason "Disagree with the rule". If it's a rule problem, change the rule in Settings with a reason. |
 | **Want to change a rule** | **Settings › Rules**. Edit and give a reason. It applies from the next run and is logged for Deepa. |

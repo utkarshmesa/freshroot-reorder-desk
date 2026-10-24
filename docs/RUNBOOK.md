@@ -37,6 +37,12 @@ The everyday "what do I do" for Priya, Raghav and procurement is in the app (**H
 | `deadline_applied`, `rejection_rate`, `run_ready_late` | Deepa | Information; see Instructions |
 | `llm_fallback` | admin | [8](#8-claudes-text-falls-back-to-templates) |
 | `cron_failed` | admin | [9](#9-a-scheduled-job-had-errors) |
+| `send_failed` | planners, admin | [9](#9-a-scheduled-job-had-errors): the noon send didn't go; press Send once fixed |
+| `supplier_blocked` | procurement, planners | [3](#3-pending-or-stale-drafts) (repeats each week while it lasts) |
+| `lines_held` | planners | Information: a PO for those SKUs changed in Zoho since Monday; they return next Monday |
+| `correction_after_send` | procurement, planners | A same-week data correction after drafts were sent: compare old and new quantities; procurement may edit the draft in Zoho |
+| `festival_missing` | planners | Raghav enters next year's festival dates (Settings → Festivals & holds) |
+| `po_sheets_ready` | procurement, planners | [12](#12-zoho-cant-be-used-this-week-run-from-files): PO sheets to download and place |
 
 If `RESEND_API_KEY` or `ALERT_EMAIL_FROM` is missing, alerts are stored but not emailed (`sent_at` stays empty). Check the `alert` table after any deploy.
 
@@ -96,7 +102,7 @@ The cron also picks the run up within 5 minutes, so you don't need to trigger an
 | Reason | Meaning |
 |---|---|
 | `zoho_auth` | Zoho refused the token, even after one refresh |
-| `zoho_unavailable` | 5xx or 429 errors persisted after 5 tries with back-off |
+| `zoho_unavailable` | Zoho kept failing (5xx or 429) for about 30 minutes: the run retries on each 5-minute cron cycle first, and the desk says so (F8) |
 | `zoho_budget` | more than 300 Zoho calls for one run |
 | `zoho_unexpected` | a status or response the code doesn't know; fails closed |
 | `zoho_not_connected` | `ZOHO_*` variables missing in this environment |
@@ -123,7 +129,7 @@ The cron also picks the run up within 5 minutes, so you don't need to trigger an
 
 **Verification:** the banner disappears and the queue appears. The `zoho_read` on the run row has a fresh `read_at`.
 
-**If it isn't fixed by Tuesday 12:00 IST:** no drafts go out for the week, by design (fail closed). Tell Deepa; Raghav plans manually. Nothing needs cleaning up afterwards.
+**If it can't be fixed in time:** Deepa can run the week from files (section 12, the Zoho failsafe). Otherwise no drafts go out for the week, by design (fail closed), and Raghav plans by hand. Nothing needs cleaning up afterwards.
 
 ---
 
@@ -227,7 +233,7 @@ Only Deepa can switch (D17). It takes effect from the **next Monday's run**, nev
 **Before switching** (go/no-go, owned by Deepa):
 - [ ] The Zoho scope check passed in the test org: `ZOHO_LIVE=1 npm run test:zoho-live`. This can't-issue check was a Milestone 1 exit blocker (ADR-0002), and the user deferred it (C-030).
 - [ ] At least 4 shadow weeks reviewed, including W53. Agreement, overrides and speed are shown on Outcomes (BUILD_PLAN §12).
-- [ ] Day-45 replay gate result recorded (REPLAY_SPEC; `npm run replay`).
+- [ ] **Shadow safety gate passed** (C-037; STRESS_TEST_STEP4 §3): 4 shadow weeks including W53, judged on the Outcomes page's shadow comparison with Raghav's actual orders (C-038). The 3-year replay can't run on the data Freshroots has; it stays available for when history exists.
 - [ ] Holdout list fixed (Settings → Holdout, about 20% of SKUs). It doesn't change during the pilot.
 - [ ] Real perishable MOQs and shelf lives entered; no "assumed" tags left on pilot SKUs that matter.
 - [ ] Procurement briefed on `FR-` drafts (Instructions §3).
@@ -319,6 +325,37 @@ Non-working days aren't in Settings yet (C-021, deferred to v1.1). Interim rule:
 3. Re-enable the job before that day. Its next 12:00 firing applies the rule to anything still waiting in the latest week, then sends.
    - If the week has already ended by then, nothing is applied; those cards come back in next Monday's run.
 4. Record the pause in the History table below.
+
+---
+
+## 12. Zoho can't be used this week: run from files
+
+The Zoho failsafe (C-039). Use it when the week is blocked by a Zoho problem (`zoho_*` reason) and it can't be fixed in time, or when Zoho isn't connected at all. The default stays fail-closed: nothing happens unless Deepa chooses this.
+
+1. **Procurement:** prepare the open purchase orders as at Monday 00:00 IST, from a Zoho export or their own list. Use CSV or XLSX with these columns:
+   - `po_number, supplier_id, sku_id, po_date, ordered_units, received_units, status` (optional `expected_date, reference`).
+   - Status uses Zoho's names: `open`, `partially_received`, `received`, `closed`, `cancelled`, `draft`, … An unknown status or SKU is refused, never guessed.
+   - If goods arrived since Monday, also prepare a receipts file: `po_number, sku_id, receipt_date, received_units`.
+
+   Procurement confirms to Deepa that the list is complete.
+2. **Deepa:**
+   1. Review desk → **Zoho failsafe: run this week from files**.
+   2. Choose the file(s), tick "Procurement confirmed this list is complete", give a reason, and press **Run from files**.
+   3. Check the result:
+      - The message gives the number of open lines and units.
+      - Compare them with what procurement expects: a big drop from last week is a sign the list is incomplete.
+      - The desk shows the same totals as a note.
+3. **Raghav** reviews the queue as usual.
+4. **Send** (live mode): instead of Zoho drafts, the desk records one **PO sheet** per supplier (`FR-{week}-{supplier}`) and emails procurement and Raghav.
+   - In shadow mode nothing is sent anywhere, as always.
+5. **Procurement:**
+   1. On the desk's drafts table, press **Download sheet** for each supplier.
+   2. Place the order with the supplier, and in Zoho if possible.
+   3. Press **Placed**. This is the one thing procurement records in the app, and it counts toward order speed.
+6. **Next week:** a sheet still not placed holds that supplier for the week, like a pending draft.
+   - Placed orders must appear in next week's Zoho read or open-PO file, otherwise the rules will order again.
+
+**Kill criterion** (C-039): if a file-mode week causes a double order traced to a wrong or stale open-PO file twice in the pilot, stop using file mode and go back to fail-closed plus manual planning.
 
 ---
 
