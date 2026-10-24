@@ -5,7 +5,7 @@ import { Flash, type SearchParams } from "@/app/settings/ui";
 import { can } from "@/lib/auth/access";
 import { requireScreen } from "@/lib/auth/me";
 import { caseDataMode, userClient } from "@/lib/db/server";
-import { reapprove, send } from "./actions";
+import { reapprove, retryRun, send } from "./actions";
 import { Card, units, wks } from "./Card";
 import { loadDesk } from "./data";
 
@@ -66,6 +66,13 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
         <div className="banner bad">
           <strong>This week&apos;s run is blocked.</strong> {run.error?.message ?? run.error?.reason ?? ""} Nothing goes to procurement until it&apos;s fixed. <a href="/instructions#what-to-do-when">What to do</a>
         </div>
+      )}
+      {run.status === "blocked" && can(session, "run.retry") && (
+        <form action={retryRun} className="card row">
+          <input type="hidden" name="run" value={run.id} />
+          <input name="reason" required placeholder="What was fixed (required)" aria-label="What was fixed" style={{ flex: 1, minWidth: 240 }} />
+          <button className="primary">Retry run</button>
+        </form>
       )}
       {!ready && run.status !== "blocked" && <div className="banner info">The run is in progress ({RUN_STEP[run.status] ?? run.status}). Reload in a minute.</div>}
 

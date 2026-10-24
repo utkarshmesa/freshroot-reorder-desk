@@ -12,7 +12,8 @@ export type Action =
   | "settings.editReasonCodes"
   | "owner.setMode"
   | "owner.setHoldout"
-  | "review.decide";
+  | "review.decide"
+  | "run.retry";
 
 export type Me = { roles: Role[]; isOwner: boolean };
 
@@ -34,6 +35,7 @@ const ACTIONS: Record<Action, Role[]> = {
   "owner.setMode": [],
   "owner.setHoldout": [],
   "review.decide": ["planner"],
+  "run.retry": ["admin"],
 };
 
 const has = (me: Me, roles: Role[]) => me.roles.some((r) => roles.includes(r));

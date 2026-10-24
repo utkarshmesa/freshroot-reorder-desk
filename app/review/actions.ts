@@ -4,8 +4,10 @@
 // Zoho writer isn't covered by RLS (ARCHITECTURE §3.2).
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { requireAction } from "@/lib/auth/me";
-import { serviceClient, userClient } from "@/lib/db/server";
+import { caseDataMode, serviceClient, userClient } from "@/lib/db/server";
+import { processRun } from "@/lib/run/worker";
 import { sendToProcurement } from "@/lib/send/send";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -65,4 +67,19 @@ export async function reapprove(form: FormData) {
   if (error) back("error", error.message);
   revalidatePath("/review");
   back("saved", "Draft re-approved: procurement can issue it.");
+}
+
+/** Admin: restart a blocked run after fixing its cause (RUNBOOK). A run blocked before the queue existed starts over. */
+export async function retryRun(form: FormData) {
+  await requireAction("run.retry");
+  const runId = str(form, "run");
+  const { data, error } = await (await userClient()).rpc("retry_run", { p_run_id: runId, p_reason: str(form, "reason") });
+  if (error) back("error", error.message);
+  if (data === "queued") {
+    after(async () => {
+      await processRun(serviceClient(), runId, { caseDataMode: caseDataMode() }).catch((e) => console.error(`run ${runId} failed; the cron will retry`, e));
+    });
+  }
+  revalidatePath("/review");
+  back("saved", data === "queued" ? "Run restarted from the beginning. Reload in a minute." : "Run unblocked; the queue and decisions are as they were.");
 }

@@ -216,3 +216,31 @@ describe("alert delivery", () => {
     expect((await service().from("alert").select("sent_at").eq("dedupe_key", "t3").single()).data!.sent_at).toBeNull();
   });
 });
+
+describe("admin Retry run (RUNBOOK)", () => {
+  it("blocked before the queue existed: restarts from the beginning and finishes", async () => {
+    const { data } = await service().rpc("supersede_or_start_run", { p_week: "2026-W43", p_upload: null });
+    const runId = (data as { run_id: string }).run_id;
+    await service().from("run").update({ status: "blocked", step_attempts: 4, error: { reason: "zoho_auth", message: "token revoked" } }).eq("id", runId);
+    const { client: raghav } = await as("raghav");
+    expect((await raghav.rpc("retry_run", { p_run_id: runId, p_reason: "x" })).error?.message).toMatch(/Only an admin/);
+    const { client: admin } = await as("it.admin");
+    expect((await admin.rpc("retry_run", { p_run_id: runId, p_reason: " " })).error?.message).toMatch(/reason/);
+    expect((await admin.rpc("retry_run", { p_run_id: runId, p_reason: "new refresh token installed" })).data).toBe("queued");
+    expect((await processRun(service(), runId, { caseDataMode: true, llm: null, now: MON })).status).toBe("done");
+    const { data: log } = await service().from("change_log").select("reason").eq("entity", "run").eq("entity_id", "2026-W43");
+    expect(log!.map((l) => l.reason)).toContain("new refresh token installed");
+  });
+
+  it("blocked after the queue existed: back to done, decisions kept", async () => {
+    const runId = await newRun();
+    const { client: raghav } = await as("raghav");
+    const card = (await lines(runId)).find((l) => l.line_state === "queued")!;
+    await raghav.rpc("decide_line", { p_rec_id: card.id, p_action: "approve" });
+    await service().from("run").update({ status: "blocked", error: { reason: "zoho_not_draft" } }).eq("id", runId);
+    const { client: admin } = await as("it.admin");
+    expect((await admin.rpc("retry_run", { p_run_id: runId, p_reason: "scopes fixed" })).data).toBe("done");
+    expect((await lines(runId)).find((l) => l.id === card.id)!.line_state).toBe("approved");
+    expect((await admin.rpc("retry_run", { p_run_id: runId, p_reason: "again" })).error?.message).toMatch(/Only a blocked run/);
+  });
+});
