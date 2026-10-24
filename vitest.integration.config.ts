@@ -13,6 +13,8 @@ export default defineConfig({
     include: ["tests/integration/**/*.test.ts"],
     globalSetup: ["tests/integration/global-setup.ts"],
     environment: "node",
+    // Never call the real Claude API from tests, even if a key is set in the shell.
+    env: { ANTHROPIC_API_KEY: "" },
     fileParallelism: false,
     testTimeout: 30_000,
     hookTimeout: 180_000,

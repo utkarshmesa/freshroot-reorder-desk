@@ -56,7 +56,7 @@ describe("reading Zoho into the position (ZO-01, ZO-02, ST-04)", () => {
     z.addPo({ purchaseorder_id: "recv-1", status: "received", line_items: [{ item_id: "it-SKU004", quantity: 100, quantity_received: 100 }] });
     z.addReceive({ receive_id: "rc-1", date: "2026-10-19", purchaseorder_id: "recv-1", line_items: [{ item_id: "it-SKU004", quantity: 100 }] });
     const id = await freshRun();
-    expect((await run(id)).status).toBe("ready");
+    expect((await run(id)).status).toBe("done");
     const r = await recs(id);
     // Peanut Butter: 180 + 300 open = 480 → cover 8.45 → no action now.
     expect([(r.SKU013!.inputs as { position: number }).position, r.SKU013!.action]).toEqual([480, "none"]);
@@ -144,7 +144,7 @@ describe("draft read-back (ZO-05, ZO-06, RN-07)", () => {
     z.addPo({ purchaseorder_id: "d-edited", status: "open", reference_number: "Supplier ref 77", line_items: [{ item_id: "it-SKU011", quantity: 450, quantity_received: 0 }] });
 
     const id = await freshRun();
-    expect((await run(id)).status).toBe("ready");
+    expect((await run(id)).status).toBe("done");
 
     const { data: rows } = await svc.from("draft_po").select("supplier_id, status, issued_lines, issued_at").order("supplier_id");
     expect(rows!.map((r) => [r.supplier_id, r.status])).toEqual([

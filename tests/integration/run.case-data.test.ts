@@ -28,7 +28,7 @@ describe("RU-01 through the database", () => {
     const [a, b] = await Promise.all([processRun(service(), runId, { caseDataMode: true }), processRun(service(), runId, { caseDataMode: true })]);
     expect([a.claimed, b.claimed].filter(Boolean)).toHaveLength(1);
     const { data } = await service().from("run").select("status, zoho_read, notes, locked_until").eq("id", runId).single();
-    expect(data!.status).toBe("ready");
+    expect(data!.status).toBe("done");
     expect(data!.zoho_read).toMatchObject({ skipped: "case_data" });
     expect(data!.notes).toEqual(["Zero-stock exclusion is partial for 15 SKU(s): fewer than 12 weeks of stock snapshots so far (C-007)."]);
     expect(data!.locked_until).toBeNull();
@@ -72,7 +72,37 @@ describe("RU-01 through the database", () => {
 
   it("a finished run isn't processed again", async () => {
     const r = await processRun(service(), runId, { caseDataMode: true });
-    expect(r).toEqual({ runId, status: "ready", claimed: false });
+    expect(r).toEqual({ runId, status: "done", claimed: false });
+  });
+});
+
+describe("step 7: Claude reasons and the brief (LL-01..LL-04 through the database)", () => {
+  it("every card has a template reason, and a template brief exists, with no key configured", async () => {
+    const { data } = await service().from("recommendation").select("sku_id, reason_text, reason_source").eq("run_id", runId);
+    expect(data!.every((r) => r.reason_text && r.reason_source === "template")).toBe(true);
+    const { data: brief } = await service().from("brief").select("*").eq("run_id", runId).single();
+    expect(brief).toMatchObject({ source: "template", checked: false });
+    expect(brief!.text).toContain("Week 2026-W43 (shadow mode)");
+  });
+
+  it("checked LLM text replaces the template on cards Raghav sees; a wrong number keeps the template; qty never changes", async () => {
+    await service().from("run").update({ status: "ready" }).eq("id", runId);
+    const before = await service().from("recommendation").select("sku_id, qty, reason_text").eq("run_id", runId);
+    const llm = async (system: string, user: string) => {
+      if (system.includes("weekly reorder brief")) return "A quiet week.";
+      if (user.includes("\"skuId\":\"SKU004\"")) return "Order 9999 units."; // invented number
+      if (user.includes("\"skuId\":")) return "The rules order this because cover is below the minimum.";
+      throw new Error("unexpected prompt");
+    };
+    expect((await processRun(service(), runId, { caseDataMode: true, llm })).status).toBe("done");
+    const { data } = await service().from("recommendation").select("sku_id, qty, reason_text, reason_source, line_state").eq("run_id", runId);
+    const by = Object.fromEntries(data!.map((r) => [r.sku_id, r]));
+    expect(by.SKU001).toMatchObject({ reason_source: "llm", reason_text: "The rules order this because cover is below the minimum." });
+    expect(by.SKU004!.reason_source).toBe("template");
+    expect(by.SKU006!.reason_source).toBe("template"); // not a card Raghav reviews: never sent to Claude
+    for (const r of before.data!) expect(by[r.sku_id]!.qty).toBe(r.qty);
+    const { data: brief } = await service().from("brief").select("text, source").eq("run_id", runId).single();
+    expect(brief).toEqual({ text: "A quiet week.", source: "llm" });
   });
 });
 
@@ -95,7 +125,7 @@ describe("loader: last week's zero stock is excluded (review finding 2, RU-12 th
       }
       const res = await commitUpload(client, staged.uploadId);
       expect(res.run_week).toBe("2026-W44");
-      expect((await processRun(service(), res.run_id!, { caseDataMode: true })).status).toBe("ready");
+      expect((await processRun(service(), res.run_id!, { caseDataMode: true })).status).toBe("done");
       const { data } = await service().from("recommendation").select("sku_id, inputs").eq("run_id", res.run_id!).in("sku_id", ["SKU002", "SKU003"]);
       const a12 = Object.fromEntries((data ?? []).map((r) => [r.sku_id, (r.inputs as { a12: number; cleanWeeks: number }).a12]));
       const clean = Object.fromEntries((data ?? []).map((r) => [r.sku_id, (r.inputs as { cleanWeeks: number }).cleanWeeks]));

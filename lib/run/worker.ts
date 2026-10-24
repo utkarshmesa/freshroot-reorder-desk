@@ -1,7 +1,9 @@
 import "server-only";
 // The weekly run as a resumable state machine (ARCHITECTURE §4, BUILD_PLAN §8). Each call claims the run
 // with a row lease, does the remaining steps, and releases it. Safe to call from the commit trigger and the
-// cron at once. Steps: queued → readback → zoho_read → mapping → engine → ready.
+// cron at once. Steps: queued → readback → zoho_read → mapping → engine → ready → (Claude) → done.
+// The queue is visible at "ready" with template reasons; checked Claude text replaces them afterwards and the
+// LLM never blocks the run (ARCHITECTURE §4, §6).
 //
 // Read-back comes first (review M3, finding 6): a draft seen pending holds its supplier back for the week
 // (C-023b) even if it's issued a moment later, and anything issued by then is in the PO read that follows.
@@ -10,6 +12,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runEngine } from "@/lib/engine";
 import type { PoLine, Receipt, Recommendation } from "@/lib/engine/types";
+import { productionLlm } from "@/lib/llm/client";
+import { explainBrief, explainCard, type LlmCall } from "@/lib/llm/explain";
+import { briefFacts, cardFacts } from "@/lib/llm/facts";
+import { reasonTemplate } from "@/lib/llm/template";
 import { productionZoho, type ZohoFactory } from "@/lib/zoho/client";
 import { ZohoApiError, ZohoAuthError, ZohoBudgetError, ZohoDataError, type ZohoHttp } from "@/lib/zoho/http";
 import { mappingCheck, readback, type RequestedLine } from "@/lib/zoho/map";
@@ -17,7 +23,8 @@ import { readForRun, readPo } from "@/lib/zoho/reader";
 import { loadEngineInput, type RunRow } from "./load";
 
 export type ProcessResult = { runId: string; status: string; claimed: boolean; error?: string };
-export type ProcessOptions = { caseDataMode: boolean; now?: Date; zoho?: ZohoFactory };
+/** llm: undefined = the production client (null without a key); null = templates only. */
+export type ProcessOptions = { caseDataMode: boolean; now?: Date; zoho?: ZohoFactory; llm?: LlmCall | null };
 
 /** After this many claims without finishing (errors or timeouts), a run is blocked and the admin alerted. */
 export const MAX_ATTEMPTS = 3;
@@ -47,7 +54,14 @@ function lineState(r: Recommendation, pendingSuppliers: ReadonlySet<string>): st
   return null;
 }
 
-export function toRow(runId: string, r: Recommendation, pendingSuppliers: ReadonlySet<string> = new Set()) {
+/** D1..D3 → distributor names for one card; null in case-data mode (names hidden). */
+function namesFor(r: Recommendation, distributorNames: ReadonlyMap<string, string> | null): Record<string, string> | null {
+  if (!distributorNames) return null;
+  const { distributorIds } = cardFacts(r);
+  return Object.fromEntries(distributorIds.map((id, i) => [`D${i + 1}`, distributorNames.get(id) ?? id]));
+}
+
+export function toRow(runId: string, r: Recommendation, pendingSuppliers: ReadonlySet<string> = new Set(), distributorNames: ReadonlyMap<string, string> | null = null) {
   const { skuId, action, qty, cover, coverAfter, flags, topDistributors, triage, assumed, holdout, daysToStockout, spotCheck, ...inputs } = r;
   return {
     run_id: runId,
@@ -60,12 +74,41 @@ export function toRow(runId: string, r: Recommendation, pendingSuppliers: Readon
     top_distributors: topDistributors,
     triage,
     line_state: lineState(r, pendingSuppliers),
+    reason_text: reasonTemplate(cardFacts(r).facts, namesFor(r, distributorNames)),
+    reason_source: "template",
     inputs,
     assumed,
     holdout,
     days_to_stockout: daysToStockout,
     spot_check: spotCheck,
   };
+}
+
+/** A saved recommendation row back to the engine shape (inputs holds every field toRow didn't lift out). */
+export function recFromRow(row: Record<string, unknown>): Recommendation {
+  return {
+    ...(row.inputs as object),
+    skuId: row.sku_id,
+    action: row.action,
+    qty: row.qty,
+    cover: row.cover === null ? null : Number(row.cover),
+    coverAfter: row.cover_after === null ? null : Number(row.cover_after),
+    flags: row.flags,
+    topDistributors: row.top_distributors,
+    triage: row.triage,
+    assumed: row.assumed,
+    holdout: row.holdout,
+    daysToStockout: row.days_to_stockout === null ? null : Number(row.days_to_stockout),
+    spotCheck: row.spot_check,
+  } as Recommendation;
+}
+
+/** Calls at most `limit` at a time (ARCHITECTURE §6: concurrency 5). */
+async function pool<T>(items: T[], limit: number, f: (x: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) await f(items[next++]!);
+  }));
 }
 
 /** Supabase result → data, or throw: a failed read must never look like "no rows" (review M3, finding 2). */
@@ -247,9 +290,26 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
       const current = await must(db.from("run").select("id").eq("id", runId).is("superseded_by", null), "run");
       if (current.length !== 1) return { runId, status: "superseded", claimed: true };
       const pending = new Set(doc.pending_suppliers ?? []);
+      const names = await distributorNames(db, opts.caseDataMode);
       await must(db.from("recommendation").delete().eq("run_id", runId).select("id"), "clear recommendations");
-      await must(db.from("recommendation").insert(out.recommendations.map((r) => toRow(runId, r, pending))).select("id"), "save recommendations");
+      await must(db.from("recommendation").insert(out.recommendations.map((r) => toRow(runId, r, pending, names))).select("id"), "save recommendations");
       status = (await advance({ status: "ready", ready_at: now, notes: out.notes, error: null })) ? "ready" : "superseded";
+    }
+
+    // 7. Claude (§8.7): a reason per card Raghav sees, and the weekly brief. Checked numbers or template.
+    if (status === "ready") {
+      const llm = opts.llm === undefined ? productionLlm() : opts.llm;
+      const names = await distributorNames(db, opts.caseDataMode);
+      const rows = await must(db.from("recommendation").select("*").eq("run_id", runId), "recommendations");
+      const recs = rows.map((r) => ({ id: r.id as number, rec: recFromRow(r), lineState: (r.line_state as string | null) ?? null, source: r.reason_source as string }));
+      const toExplain = recs.filter((r) => r.lineState === "queued" && !r.rec.holdout && r.source !== "llm");
+      await pool(toExplain, 5, async (r) => {
+        const out = await explainCard(cardFacts(r.rec).facts, llm, namesFor(r.rec, names));
+        if (out.source === "llm") await must(db.from("recommendation").update({ reason_text: out.text, reason_source: "llm" }).eq("id", r.id).select("id"), "reason");
+      });
+      const brief = await explainBrief(briefFacts(run.iso_week, run.mode, recs.map((r) => ({ rec: r.rec, lineState: r.lineState }))), llm);
+      await must(db.from("brief").upsert({ run_id: runId, text: brief.text, source: brief.source, checked: brief.source === "llm" }, { onConflict: "run_id" }).select("run_id"), "brief");
+      status = (await advance({ status: "done" })) ? "done" : "superseded";
     }
     return { runId, status, claimed: true };
   } catch (e) {
@@ -273,9 +333,15 @@ export async function processRun(db: SupabaseClient, runId: string, opts: Proces
   }
 }
 
+async function distributorNames(db: SupabaseClient, caseDataMode: boolean): Promise<Map<string, string> | null> {
+  if (caseDataMode) return null; // case data: distributor names hidden (C-011)
+  const rows = await must(db.from("distributor").select("id, name"), "distributors");
+  return new Map(rows.map((d) => [d.id as string, d.name as string]));
+}
+
 /** Safety net: process every run that isn't finished (called by the cron route). */
 export async function processPendingRuns(db: SupabaseClient, opts: ProcessOptions): Promise<ProcessResult[]> {
-  const { data, error } = await db.from("run").select("id").is("superseded_by", null).in("status", ["queued", "readback", "zoho_read", "mapping", "engine"]);
+  const { data, error } = await db.from("run").select("id").is("superseded_by", null).in("status", ["queued", "readback", "zoho_read", "mapping", "engine", "ready"]);
   if (error) throw new Error(error.message);
   const out: ProcessResult[] = [];
   for (const r of data ?? []) {
