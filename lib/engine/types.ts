@@ -47,6 +47,9 @@ export type PoLine = {
   ordered: number;
   received: number;
   expectedDate: IsoDate | null;
+  /** PO date and reference, kept for the shadow comparison with the orders Raghav actually places (C-038). */
+  placedDate?: IsoDate | null;
+  reference?: string | null;
 };
 
 export type Receipt = { poId: string; skuId: string; date: IsoDate; qty: number };

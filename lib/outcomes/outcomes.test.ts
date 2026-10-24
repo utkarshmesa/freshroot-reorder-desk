@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agreement, isLowCoverWeek, isStockoutWeek, pilotVsManual, stockoutRate, workingDaysBetween } from "./index";
+import { agreement, isLowCoverWeek, manualOrders, shadowComparison, isStockoutWeek, pilotVsManual, stockoutRate, workingDaysBetween } from "./index";
 
 describe("OC-01 stockout week (C-031 B)", () => {
   it("on-hand 0 is a stockout", () => expect(isStockoutWeek(0, null)).toBe(true));
@@ -44,8 +44,26 @@ describe("OC-04 pilot vs manual and shadow agreement", () => {
     expect(r.pilot).toEqual({ stockoutWeeks: 1, lowCoverWeeks: 1, skuWeeks: 2, rate: 0.5 });
     expect(r.manual.rate).toBe(1);
   });
-  it("agreement counts approved-as-recommended among decided cards", () => {
-    expect(agreement([{ status: "approved" }, { status: "changed" }, { status: "rejected" }, { status: "reapproved" }])).toEqual({ decided: 3, approved: 1, pct: 33.3 });
+  it("F6: agreement is unit-weighted: approved-as-recommended units over decided units", () => {
+    expect(agreement([{ status: "approved", units: 600 }, { status: "changed", units: 200 }, { status: "rejected", units: 200 }, { status: "reapproved", units: 999 }])).toEqual({ decided: 1000, approved: 600, pct: 60 });
     expect(agreement([]).pct).toBeNull();
+  });
+});
+
+describe("C-038 shadow: the system against what Raghav actually ordered", () => {
+  const lines = [
+    { poId: "p1", skuId: "A", ordered: 300, placedDate: "2026-10-21", reference: "phone" },
+    { poId: "p1", skuId: "A", ordered: 300, placedDate: "2026-10-21", reference: "phone" }, // seen again by a later read
+    { poId: "p2", skuId: "B", ordered: 100, placedDate: "2026-10-27", reference: null }, // next week
+    { poId: "p3", skuId: "C", ordered: 500, placedDate: "2026-10-20", reference: "FR-2026-W43-DIST001" }, // system draft
+    { poId: "p4", skuId: "D", ordered: 50, placedDate: null, reference: null }, // no date: can't place it in a week
+  ];
+  it("manual orders: non-system POs dated in the week, each PO line once", () => {
+    expect([...manualOrders(lines, "2026-10-19", "2026-10-25")]).toEqual([["A", 300]]);
+  });
+  it("compares the call (order or not) and the units", () => {
+    expect(shadowComparison([{ skuId: "A", system: 750, manual: 300 }, { skuId: "B", system: 0, manual: 0 }, { skuId: "C", system: 200, manual: 0 }, { skuId: "D", system: 0, manual: 80 }])).toEqual({
+      skuWeeks: 4, sameDecision: 2, sameDecisionPct: 50, systemUnits: 950, manualUnits: 380, systemOnly: ["C"], manualOnly: ["D"],
+    });
   });
 });

@@ -53,9 +53,46 @@ export function pilotVsManual(rows: GroupWeek[]) {
   return { pilot: stockoutRate(rows.filter((r) => !r.holdout)), manual: stockoutRate(rows.filter((r) => r.holdout)) };
 }
 
-/** Shadow agreement (C-018): share of Raghav's decided cards approved as recommended. */
-export function agreement(decisions: Array<{ status: string }>): { decided: number; approved: number; pct: number | null } {
+/**
+ * Shadow agreement (C-018, unit-weighted; stress test F6): units Raghav approved as recommended ÷ units on the
+ * cards he decided. Units = the engine's quantity on the card. A changed or rejected card counts as disagreement.
+ */
+export function agreement(decisions: Array<{ status: string; units: number }>): { decided: number; approved: number; pct: number | null } {
   const decided = decisions.filter((d) => d.status === "approved" || d.status === "changed" || d.status === "rejected");
-  const approved = decided.filter((d) => d.status === "approved").length;
-  return { decided: decided.length, approved, pct: decided.length ? Math.round((approved / decided.length) * 1000) / 10 : null };
+  const total = decided.reduce((a, d) => a + d.units, 0);
+  const approved = decided.filter((d) => d.status === "approved").reduce((a, d) => a + d.units, 0);
+  return { decided: total, approved, pct: total > 0 ? Math.round((approved / total) * 1000) / 10 : null };
+}
+
+export type PlacedLine = { poId: string; skuId: string; ordered: number; placedDate?: string | null; reference?: string | null };
+
+/**
+ * C-038: what Raghav actually ordered, per SKU, in one week: POs that are not system drafts (reference not FR-),
+ * dated Monday to Sunday of that week, each PO line counted once however many reads saw it.
+ * Limit: a PO placed and fully received between two Monday reads is never seen.
+ */
+export function manualOrders(lines: PlacedLine[], monday: string, sunday: string): Map<string, number> {
+  const seen = new Map<string, PlacedLine>();
+  for (const l of lines) {
+    if (!l.placedDate || l.placedDate < monday || l.placedDate > sunday || (l.reference ?? "").startsWith("FR-")) continue;
+    const key = `${l.poId}|${l.skuId}`;
+    if ((seen.get(key)?.ordered ?? -1) < l.ordered) seen.set(key, l);
+  }
+  const out = new Map<string, number>();
+  for (const l of seen.values()) out.set(l.skuId, (out.get(l.skuId) ?? 0) + l.ordered);
+  return out;
+}
+
+/** C-038 per week: did the system and Raghav make the same call (order or not), and how many units each. */
+export function shadowComparison(rows: Array<{ skuId: string; system: number; manual: number }>) {
+  const same = rows.filter((r) => r.system > 0 === r.manual > 0).length;
+  return {
+    skuWeeks: rows.length,
+    sameDecision: same,
+    sameDecisionPct: rows.length ? Math.round((same / rows.length) * 1000) / 10 : null,
+    systemUnits: rows.reduce((a, r) => a + r.system, 0),
+    manualUnits: rows.reduce((a, r) => a + r.manual, 0),
+    systemOnly: rows.filter((r) => r.system > 0 && r.manual === 0).map((r) => r.skuId),
+    manualOnly: rows.filter((r) => r.manual > 0 && r.system === 0).map((r) => r.skuId),
+  };
 }

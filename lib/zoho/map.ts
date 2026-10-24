@@ -51,6 +51,8 @@ export function toPoLines(po: ZohoPo, itemToSku: ReadonlyMap<string, string>): P
       ordered: Number(l.quantity),
       received: Number(l.quantity_received ?? 0),
       expectedDate: po.delivery_date || null,
+      placedDate: po.date || null,
+      reference: po.reference_number || null,
     }));
 }
 

@@ -81,5 +81,9 @@ test("the CEO sees the brief, pilot vs manual and the decision log", async ({ pa
   await signIn(page, "ceo");
   await expect(page.getByText(/Week 2026-W43 \(shadow mode\)/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Pilot vs manual" })).toBeVisible();
+  // C-038: the shadow week compared with Raghav's actual orders (none read in case-data mode, so all "system only").
+  await expect(page.getByRole("heading", { name: "Shadow: the system against Raghav's actual orders" })).toBeVisible();
+  const shadowRow = page.locator("table").filter({ hasText: "Same call (order or not)" }).getByRole("row", { name: /2026-W43/ });
+  await expect(shadowRow).toContainText(" / 0");
   await expect(page.getByRole("cell", { name: "supplier_issue: supplier out until Friday" })).toBeVisible();
 });
