@@ -155,3 +155,14 @@ BUILD_PLAN §8 says: "Q = std × (1.5 if HD else 1); raise in std steps until P 
 The replay already reports all three numbers, and prints the verdict under both A and B.
 
 **Tie rule (also needs a decision):** if both arms have 0 lost-sales weeks, "fewer" can't be met. **Recommended:** count the stockout test as passed when the rules arm has **no more** stockout weeks than the actual arm, and write-offs are strictly fewer.
+
+## C-032: Replay method parameters (Milestone 4 review)
+
+**Status: Proposed.** These are method choices, not business numbers. Confirm them, or give other values, before the gate runs on real data.
+
+| Parameter | Value | Why |
+|---|---|---|
+| Minimum simulated weeks for a verdict | 52 | One full seasonal cycle (both festival seasons and W53) is the least that can speak for a 3-year history |
+| Maximum drift of the simulated actual arm from real SAP stock | 25% of average on-hand | Beyond this, the simulator doesn't represent what happened well enough to judge |
+| Significance | 95% bootstrap over SKUs, both differences clear of zero | A better total that could be noise is INCONCLUSIVE, not PASS |
+| Robustness | must also pass with every rules-arm delivery 1 week late | Real suppliers are sometimes late; the rules arm otherwise gets perfect deliveries |

@@ -1,5 +1,6 @@
 // Renders the replay results as the gate report (REPLAY_SPEC §4–5). Pure.
-import type { ReplaySummary } from "./replay";
+import type { ReplaySummary, Verdict } from "./replay";
+import { MAX_TRACKING_GAP } from "./replay";
 
 const n = (x: number, dp = 0) => x.toLocaleString("en-IN", { maximumFractionDigits: dp, minimumFractionDigits: dp });
 const ci = (i: { estimate: number; low: number; high: number }, dp = 0) => `${n(i.estimate, dp)} (95% CI ${n(i.low, dp)} to ${n(i.high, dp)})`;
@@ -8,9 +9,11 @@ export type ReportInput = {
   title: string;
   dataNote: string;
   main: ReplaySummary; // production reading ("any"), rules as written ("skip")
+  late: ReplaySummary; // the same with every rules-arm delivery a week late
+  verdict: Verdict; // main, checked for robustness against late deliveries
   readings: ReplaySummary[]; // all readings, rules as written
   moq: ReplaySummary; // production reading, infeasible cards ordered at MOQ
-  qa: { conservation: boolean; negativeStock: boolean; weeksContiguous: boolean; hasW53: boolean };
+  qa: { conservation: boolean; missingWeeks: string[]; w53: string; stockRebuilt: number };
 };
 
 export function renderReport(r: ReportInput): string {
@@ -19,7 +22,7 @@ export function renderReport(r: ReportInput): string {
   const push = (...s: string[]) => lines.push(...s);
 
   push(`# ${r.title}`, "", `> ${r.dataNote}`, "");
-  push(`**Verdict: ${m.verdict.result}**`, "", ...m.verdict.reasons.map((x) => `- ${x}`), "");
+  push(`**Verdict: ${r.verdict.result}**`, "", ...r.verdict.reasons.map((x) => `- ${x}`), "");
   push(
     `Simulated Mondays: **${m.replayWeeks}** (${m.firstWeek ?? "–"} to ${m.lastWeek ?? "–"}) · SKUs compared: **${m.compared}** of ${m.skus.length} · method: \`docs/REPLAY_SPEC.md\``,
     "",
@@ -33,6 +36,7 @@ export function renderReport(r: ReportInput): string {
   push(`| Lost-sales units | ${n(m.actual.lost)} | ${n(m.rules.lost)} | ${ci(m.diff.lost)} |`);
   push(`| Units ordered / received | ${n(m.actual.unitsOrdered)} | ${n(m.rules.unitsOrdered)} | |`);
   push(`| Orders | ${n(m.actual.orders)} | ${n(m.rules.orders)} | |`, "");
+  push(`**Late-delivery check:** with every rules-arm delivery a week late, stockout weeks ${n(r.late.rules.stockoutWeeks)}, weeks with lost sales ${n(r.late.rules.lostSalesWeeks)}, write-off units ${n(r.late.rules.writeOff)} (verdict on its own: ${r.late.verdict.result}).`, "");
   push("Both arms run through the same simulator with the same demand; only the receipts differ (actual receipts vs the engine's orders). Intervals: 95% bootstrap over SKUs, seeded.", "");
 
   push("## 2. Per SKU", "", "| SKU | Perishable | Stock source | Stockout wks (actual → rules) | Write-off units (actual → rules) | Imputed weeks | Notes |", "|---|---|---|---|---|---|---|");
@@ -65,19 +69,23 @@ export function renderReport(r: ReportInput): string {
   push(`- High-demand quantity below the normal quantity (C-029): ${n(st.hdBelow)} SKU-weeks.`, "");
 
   push("## 4. Method QA (data:validate-data)", "");
-  push(`- Units conserved in every simulated arm (opening + receipts = sold + written off + closing): **${r.qa.conservation ? "yes" : "NO"}**`);
-  push(`- No negative stock: **${r.qa.negativeStock ? "NO, negative stock found" : "yes"}**`);
-  push(`- Weeks contiguous: **${r.qa.weeksContiguous ? "yes" : "NO"}**; includes a W53: ${r.qa.hasW53 ? "yes" : "no (none in this period)"}`);
+  push(`- Units conserved in every simulated arm (opening + receipts = sold + written off + closing; a guard against simulator bugs): **${r.qa.conservation ? "yes" : "NO"}**`);
+  push(`- Weeks with no sales rows at all in the export: **${r.qa.missingWeeks.length ? r.qa.missingWeeks.join(", ") : "none"}**; W53: ${r.qa.w53}`);
+  push(`- SKUs whose stock was partly rebuilt (D20; ignores write-offs and shrinkage, so past stock can be understated): ${r.qa.stockRebuilt}`);
   const tracked = m.skus.filter((s) => s.qa && s.qa.trackedWeeks > 0);
   if (tracked.length) {
     const avgGap = tracked.reduce((a, s) => a + s.qa!.trackingMeanAbs!, 0) / tracked.length;
     const loss = tracked.reduce((a, s) => a + s.qa!.inferredLossSigned, 0);
-    push(`- Actual arm vs real SAP stock: mean absolute gap **${n(avgGap, 1)} units** per SKU-week over ${tracked.length} SKUs; inferred loss in the real history (signed, C-014 option A): **${n(loss)} units**.`);
+    const rel = tracked.filter((s) => s.qa!.trackingRelative !== null);
+    const drift = rel.length ? rel.reduce((a, s) => a + s.qa!.trackingRelative!, 0) / rel.length : null;
+    push(`- Actual arm vs real SAP stock: mean absolute gap **${n(avgGap, 1)} units** per SKU-week over ${tracked.length} SKUs${drift !== null ? ` (**${Math.round(drift * 100)}%** of real on-hand; limit ${MAX_TRACKING_GAP * 100}%)` : ""}; inferred loss in the real history (signed, C-014 option A): **${n(loss)} units**.`);
   } else push("- Actual arm vs real SAP stock: **not checkable**. There is no weekly stock history, so stock was rebuilt (D20) and write-offs come from the simulator's ageing only (C-014 option C).");
   push("");
 
   push("## 5. Limits", "");
-  push("- Approved orders are assumed to arrive exactly after the lead time; supplier delays aren't modelled.");
+  push("- Rules-arm orders arrive after the lead time in full; a one-week-late variant is run, and a PASS must survive it.");
+  push("- Without ordered_units, demand in empty-shelf weeks is imputed; backlog shipped the following week can then be counted twice.");
+  push("- The literal festival reading uplifts festival-month history; a second reading (uplift when the run month is a festival month) is not modelled.");
   push("- Demand doesn't react to an arm's own stockouts (lost customers aren't modelled).");
   push("- Every recommendation is taken as approved at the engine's quantity; the Tuesday deadline isn't modelled.");
   push("- The real age of opening stock isn't known; it is assumed to have arrived evenly over the previous weeks, the same for both arms.");

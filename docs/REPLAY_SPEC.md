@@ -87,3 +87,21 @@ Per SKU and in total, for each arm:
 - The simulation assumes approved orders arrive exactly after the lead time. Real supplier delays aren't modelled.
 - Demand in each arm doesn't react to that arm's own stockouts. Customers lost for good aren't modelled.
 - Before the real 3-year export arrives, any run is a **smoke test of the machinery only**.
+
+## 6. Verdict rules (after the Milestone 4 review)
+- **NOT DECIDABLE** when any of these hold:
+  - fewer than 52 simulated weeks;
+  - no receipts file;
+  - any week in the span with no sales rows (a missing week isn't zero demand);
+  - no SKU with both arms;
+  - the simulated actual arm drifts more than 25% from the real SAP stock on average.
+- **PASS** needs both of these:
+  - fewer stockout weeks **and** fewer write-off units, with both 95% bootstrap intervals clear of zero;
+  - the same result with every rules-arm delivery **a week late**.
+
+  Better point estimates without those give **INCONCLUSIVE**. Otherwise **FAIL**.
+- SKUs with no receipts at all are left out, and the report lists them.
+- Several receipt or stock rows for one SKU-week are added together.
+- The rules arm starts with Raghav's orders already in transit, the ones that arrive in its first lead-time weeks.
+- When `ordered_units` is supplied, it is the demand; otherwise demand is imputed in empty-shelf weeks.
+- The 52-week minimum and the 25% drift limit are method choices (C-032).
